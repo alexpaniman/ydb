@@ -252,12 +252,16 @@ pruning and copying. Separately, scalar List parameters and fixed tuple/list
 constructors support IN membership. Dynamic list membership uses checked key
 conversion and explicit ANSI/legacy NULL semantics; it emits typed dictionary
 operations rather than a `SqlIn` macro. Collections cannot be relational columns.
-Integral `ListFromRange`, flat scalar list casts and String/Utf8 `ListConcat`
+Integral `ListFromRange`, flat scalar list casts, `ListLength`, `ListHasItems` and String/Utf8 `ListConcat`
 are native scalar operations. List casts use the scalar conversion rules and
 discard failed required elements, while optional items retain NULL. Optional
 containers preserve an absent input. Constant folding bounds list materialization before
 allocation; runtime ranges remain lazy. Emission constructs typed runtime
 operators without the YQL annotator or scalar peepholes.
+Scalar `MinOf`/`MaxOf` and `Least`/`Greatest` use native common types, propagate
+NULL and retain the scalar runtime's NaN handling. Extended temporal operands
+are outside this scalar min/max profile. `Starts_With` and `Ends_With` share
+the ordinary native string predicate operations.
 Fixed tuple comparisons expand into native scalar comparisons with SQL NULL
 semantics and lexicographic ordering.
 

@@ -608,6 +608,12 @@ private:
                 auto size = Call("Size", std::move(args), {K::Uint32, type.OptionalDepth});
                 return Cast(size, {K::Uint32, type.OptionalDepth}, type);
             }
+            case O::ListLength: case O::ListHasItems:
+                return Present(std::move(args), types, type, [&](TExprNode::TListType values) {
+                    return Call(node.Op == O::ListLength ? "Length" : "HasItems", std::move(values), type.Required());
+                });
+            case O::Minimum: case O::Maximum:
+                return Call(node.Op == O::Minimum ? "Min" : "Max", std::move(args), type);
             case O::Contains: return Call("StringContains", std::move(args), type);
             case O::StartsWith: return Call("StartsWith", std::move(args), type);
             case O::EndsWith: return Call("EndsWith", std::move(args), type);

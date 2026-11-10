@@ -13,6 +13,7 @@ TKikimrSettings Settings(bool native) {
                                         : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
     service->SetEnableFallbackToYqlOptimizer(false);
     service->SetEnableFallbackOnMultipleStatements(false);
+    service->SetEnableNewRBOPhysicalStagePeephole(false);
     return TKikimrSettings(config).SetWithSampleTables(false);
 }
 
@@ -39,6 +40,46 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST(ScalarFunctionNamesAndMetadataMatchLegacy) {
+        const TVector<TString> queries{
+            "SELECT aBs(-1), Length('abc'), ListLength([1, 2]), ListHasItems([1]), Starts_With('abc', 'a'), "
+                "MaxOf(1, 2l), Coalesce(Just(1), 2), IF(Just(TRUE), 1, 2), IF(NULL, 1), Substring('abc', 1u);",
+            "SELECT ListLength(NULL), ListLength([]), ListHasItems([]), "
+                "ListLength(ListFromRange(CAST(NULL AS Int32?), 5)), ListHasItems(ListFromRange(CAST(NULL AS Int32?), 5));",
+            "SELECT MinOf(1, 2l), Greatest(1, 2l, Just(3)), Least(1, NULL, 3), MaxOf('abc', 'ab'), MinOf(TRUE, FALSE);",
+            "SELECT MaxOf(Decimal('nan', 12, 2), Decimal('2.50', 12, 2)), "
+                "MinOf(Decimal('2.50', 12, 2), Decimal('nan', 12, 2));",
+            "SELECT MaxOf(Double('nan'), 2.0), MinOf(2.0, Double('nan')), MaxOf(Double('nan'), Double('nan'));",
+            "SELECT MinOf(-1l, 18446744073709551615ul), MaxOf(-1l, 18446744073709551615ul), "
+                "MaxOf(Decimal('1.25', 9, 2), Decimal('2.5', 10, 1)), MinOf('a'u, 'b');",
+            "DECLARE $start AS Int32?; DECLARE $stop AS Int32; "
+                "SELECT ListLength(ListFromRange($start, $stop)), ListHasItems(ListFromRange($start, $stop)), "
+                "MinOf($start, $stop), MaxOf($start, $stop), MinOf($start, NULL, $stop);",
+        };
+        TVector<TString> baseline;
+        for (const bool native : {false, true}) {
+            TKikimrRunner kikimr(Settings(native));
+            auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const auto& query : queries) for (const bool present : {false, true}) {
+                if (present && !query.StartsWith("DECLARE")) continue;
+                const auto params = TParamsBuilder().AddParam("$start")
+                    .OptionalInt32(present ? std::optional<i32>{2} : std::nullopt).Build()
+                    .AddParam("$stop").Int32(5).Build().Build();
+                const auto result = query.StartsWith("DECLARE")
+                    ? session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx(), params).GetValueSync()
+                    : session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                Success(result);
+                const auto& rows = result.GetResultSet(0);
+                TString signature = FormatResultSetYson(rows);
+                for (const auto& column : rows.GetColumnsMeta()) signature += "|" + column.Type.ToString();
+                if (!native) baseline.push_back(signature);
+                else UNIT_ASSERT_VALUES_EQUAL_C(signature, baseline.at(index), query << ", present=" << present);
+                ++index;
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(ListOperationsMatchLegacyValuesAndNullability, Native) {
         TKikimrRunner kikimr(Settings(Native));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();

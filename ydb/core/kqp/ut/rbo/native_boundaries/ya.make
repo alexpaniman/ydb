@@ -3,6 +3,7 @@ UNITTEST_FOR(ydb/core/kqp/opt/rbo)
 FORK_SUBTESTS()
 
 SRCS(
+    kqp_native_scalar_ut.cpp
     kqp_native_range_policy_ut.cpp
     kqp_native_olap_policy_ut.cpp
 )

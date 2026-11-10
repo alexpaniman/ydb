@@ -22,6 +22,44 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(ListMetadataAndScalarExtremaSurviveRewriteAndImport) {
+        TExpressionArena arena;
+        const auto begin = arena.Column(0, {K::Int32});
+        const std::array rangeArgs{begin, arena.Literal({K::Int32}, std::int64_t{5})};
+        const auto range = arena.Call("ListFromRange", rangeArgs);
+        const auto size = arena.Unary(O::ListLength, range);
+        const auto present = arena.Unary(O::ListHasItems, range);
+        const std::array extremaArgs{size, arena.Literal({K::Uint32}, std::uint64_t{1})};
+        const auto maximum = arena.Call("MaxOf", extremaArgs);
+        const auto minimum = arena.Call("MinOf", extremaArgs);
+        const TExprId roots[]{size, present, maximum, minimum};
+        const std::string_view expected[]{"3", "true", "3", "1"};
+        for (std::size_t i = 0; i < std::size(roots); ++i) {
+            const auto rewritten = arena.RewriteColumns(roots[i], [&](auto, auto, auto, auto) {
+                return arena.Literal({K::Int32}, std::int64_t{2});
+            });
+            TExpressionArena copy;
+            copy.ListType({K::Bool});
+            const auto imported = copy.Import(arena, rewritten, [&](auto, auto, auto) -> TExprId {
+                UNIT_FAIL("constant expression unexpectedly depends on a column");
+                return 0;
+            });
+            const auto folded = copy.FoldConstants(std::span{&imported, 1}).front();
+            UNIT_ASSERT(copy[folded].Op == O::Literal);
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(copy, folded)), expected[i]);
+        }
+        UNIT_ASSERT_EXCEPTION(arena.Call("MinOf", {}), TFrontendError);
+        const std::array bad{arena.Null()};
+        UNIT_ASSERT_EXCEPTION(arena.Call("ListHasItems", bad), TFrontendError);
+        const std::array notList{Integer(arena, 1)};
+        UNIT_ASSERT_EXCEPTION(arena.Call("ListLength", notList), TFrontendError);
+        UNIT_ASSERT_VALUES_EQUAL(arena.Call("MinOf", notList), notList[0]);
+        const std::array json{arena.Parameter("json", {K::Json})};
+        UNIT_ASSERT_EXCEPTION(arena.Call("MinOf", json), TFrontendError);
+        const std::array collection{range};
+        UNIT_ASSERT_EXCEPTION(arena.Call("MaxOf", collection), TUnsupportedFeature);
+    }
+
     Y_UNIT_TEST(ListOperationsPreserveShapesOnImportRewriteAndFold) {
         TExpressionArena arena;
         const auto from = arena.Column(3, {K::Int32});

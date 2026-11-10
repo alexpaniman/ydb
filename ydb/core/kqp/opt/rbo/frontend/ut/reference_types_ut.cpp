@@ -5,6 +5,7 @@
 
 #include <library/cpp/testing/unittest/registar.h>
 #include <algorithm>
+#include <tuple>
 #include <unordered_set>
 
 using namespace NKikimr::NKqp::NFrontend;
@@ -61,6 +62,20 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(ScalarFunctionsUseSqlNames) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const auto& [sql, type, value] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view>>{
+                {"aBs(-1)", "Int32", "1"}, {"Length('abc')", "Uint32", "3"},
+                {"ListLength([1, 2])", "Uint64", "2"}, {"ListHasItems([1])", "Bool", "true"},
+                {"Starts_With('abc', 'a')", "Bool", "true"}, {"MaxOf(1, 2l)", "Int64", "2"},
+                {"Coalesce(Just(1), 2)", "Int32", "1"}, {"IF(Just(TRUE), 1, 2)", "Int32", "1"},
+                {"IF(NULL, 1)", "Int32?", "NULL"}, {"Substring('abc', 1u)", "String", "bc"}}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT " + std::string(sql)); f.Types({type});
+            UNIT_ASSERT_VALUES_EQUAL_C(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), value, sql);
+        }
+    }
+
     // Scalar-boundary cases from kqp_expr_lowering_ut.cpp. The native binder
     // supplies checked types directly, without an annotator or rewrite pass.
     Y_UNIT_TEST(MissingBindingsAndElseProduceDiagnostics) {

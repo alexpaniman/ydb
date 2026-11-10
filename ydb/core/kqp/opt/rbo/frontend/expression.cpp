@@ -1400,6 +1400,10 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         }
     } else if (op == O::UnicodeLower || op == O::UnicodeUpper) {
         if (type.Kind != K::Utf8) Fail(position, "Unicode case conversion expects Utf8");
+    } else if (op == O::ListLength || op == O::ListHasItems) {
+        if (type.Kind == K::Null && op == O::ListLength) return Literal({K::Uint64, true}, {}, position);
+        if (type.Kind != K::List) Fail(position, "List metadata function expects a list");
+        type = {op == O::ListLength ? K::Uint64 : K::Bool, type.OptionalDepth};
     } else if (op == O::Length || op == O::Lower || op == O::Upper) {
         if (!type.IsString()) {
             Fail(position, "String function expects String or Utf8");
@@ -1499,6 +1503,10 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         };
         if (neutral(left)) return Convert(right, common, position);
         if (neutral(right)) return Convert(left, common, position);
+    } else if (op == O::Minimum || op == O::Maximum) {
+        if (common.Kind == K::Null) return Literal(common, {}, position);
+        if (common.IsExtendedTemporal())
+            throw TUnsupportedFeature(EFeature::Type, position, "scalar min/max of extended temporal values is outside the native execution profile");
     } else if (IsComparison(op)) {
         result = {K::Bool, common.OptionalDepth || common.Kind == K::Null};
     } else if (op == O::Concat || op == O::Contains || op == O::StartsWith || op == O::EndsWith) {
@@ -1797,7 +1805,21 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         // are the same value. Reuse the node and preserve optional lifting.
         return Binary(O::NotEqual, input, input, position);
     }
+    if (lowered == "minof" || lowered == "maxof" || lowered == "least" || lowered == "greatest") {
+        if (arguments.empty()) Fail(position, "Scalar min/max requires at least one argument");
+        auto type = (*this)[arguments[0]].Type;
+        for (const auto id : arguments) type = CommonType(type, (*this)[id].Type, position);
+        if (type.IsJson()) Fail(position, "Scalar min/max requires comparable values");
+        if (type.IsCollection() || type.Kind == K::Calendar)
+            throw TUnsupportedFeature(EFeature::Type, position, "scalar min/max requires supported scalar values");
+        auto result = Convert(arguments[0], type, position);
+        const auto op = lowered == "minof" || lowered == "least" ? O::Minimum : O::Maximum;
+        for (std::size_t i = 1; i < arguments.size(); ++i)
+            result = Binary(op, result, Convert(arguments[i], type, position), position);
+        return result;
+    }
     for (const auto& [function, op] : {std::pair{"abs", O::Abs}, {"length", O::Length}, {"lower", O::Lower}, {"upper", O::Upper},
+        {"listlength", O::ListLength}, {"listhasitems", O::ListHasItems},
         {"string::tolower", O::Lower}, {"string::toupper", O::Upper},
         {"string::asciitolower", O::Lower}, {"string::asciitoupper", O::Upper}}) {
         if (lowered == function) {
@@ -1833,7 +1855,8 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         const TExprId values[]{Binary(function.Op, left, right, position), Literal({K::Bool}, false, position)};
         return Coalesce(values, position);
     }
-    for (const auto& [function, op] : {std::pair{"contains", O::Contains}, {"startswith", O::StartsWith}, {"endswith", O::EndsWith}, {"concat", O::Concat}}) {
+    for (const auto& [function, op] : {std::pair{"contains", O::Contains}, {"startswith", O::StartsWith}, {"starts_with", O::StartsWith},
+        {"endswith", O::EndsWith}, {"ends_with", O::EndsWith}, {"concat", O::Concat}}) {
         if (lowered == function) {
             arity(2);
             return Binary(op, arguments[0], arguments[1], position);
@@ -2398,6 +2421,10 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
     if (node.Op == O::Length) {
         return {node.Type, static_cast<std::uint64_t>(std::get<std::string>(left.Data).size())};
     }
+    if (node.Op == O::ListLength || node.Op == O::ListHasItems) {
+        const auto count = std::get<TTuple>(left.Data)->Items.size();
+        return {node.Type, node.Op == O::ListLength ? TScalar{static_cast<std::uint64_t>(count)} : TScalar{count != 0}};
+    }
     if (node.Op == O::UnicodeLower || node.Op == O::UnicodeUpper) {
         const auto& text = std::get<std::string>(left.Data);
         const TStringBuf input(text.data(), text.size());
@@ -2438,6 +2465,22 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
         return {node.Type, WrapInteger(static_cast<unsigned __int128>(number), node.Type)};
     }
     const auto& right = argument(1);
+    if (node.Op == O::Minimum || node.Op == O::Maximum) {
+        const bool minimum = node.Op == O::Minimum;
+        if (const auto* a = std::get_if<double>(&left.Data)) {
+            const auto b = std::get<double>(right.Data);
+            return {node.Type, minimum ? std::fmin(*a, b) : std::fmax(*a, b)};
+        }
+        bool less;
+        if (const auto* a = std::get_if<std::string>(&left.Data)) less = *a < std::get<std::string>(right.Data);
+        else if (left.Type.Kind == K::Decimal) {
+            const auto a = std::get<TDecimal>(left.Data).Coefficient, b = std::get<TDecimal>(right.Data).Coefficient;
+            if (b == TDecimal::NaN()) return {node.Type, left.Data};
+            if (a == TDecimal::NaN()) return {node.Type, right.Data};
+            less = a < b;
+        } else less = *IntegralValue(left) < *IntegralValue(right);
+        return {node.Type, less == minimum ? left.Data : right.Data};
+    }
     if ((node.Op == O::Add || node.Op == O::Subtract) && IsDate(left.Type.Kind)) {
         const __int128 a = *IntegralValue(left) * DateUnit(left.Type.Kind);
         const __int128 b = IsDate(right.Type.Kind) ? *IntegralValue(right) * DateUnit(right.Type.Kind) :
