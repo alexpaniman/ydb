@@ -381,8 +381,9 @@ private:
                     }
                 }
             } else if (auto* match = Child(condition, "match_op")) {
-                if (Has(condition, "ESCAPE")) Unsupported(condition, EFeature::Expression, "LIKE ESCAPE");
-                left = Add(ESyntaxKind::Binary, condition, Upper(match->getText()), {left, Expr(arguments[0])});
+                std::vector<TSyntaxId> args{left, Expr(arguments[0])};
+                if (Has(condition, "ESCAPE")) args.push_back(Expr(arguments.at(1)));
+                left = Add(ESyntaxKind::Binary, condition, Upper(match->getText()), std::move(args));
             } else {
                 if (arguments.size() != 1 || Child(condition, "distinct_from_op"))
                     Unsupported(condition, EFeature::Expression, "chained or null-safe equality");
@@ -698,8 +699,63 @@ private:
         }
         return result;
     }
+    TWriteStatement Write(TTree* node) {
+        TWriteStatement result{};
+        const bool into = Name(node) == "into_table_stmt";
+        result.Kind = into ? EWriteKind::Insert : Name(node) == "update_stmt" ? EWriteKind::Update : EWriteKind::Delete;
+        result.Batch = Has(node, "BATCH");
+        auto* simple = Child(node, "simple_table_ref");
+        if (into) {
+            if (Has(node, "IGNORE")) Unsupported(node, EFeature::Statement, "INSERT OR IGNORE");
+            if (Has(node, "UPSERT")) result.Kind = EWriteKind::Upsert;
+            if (Has(node, "REPLACE")) result.Kind = EWriteKind::Replace;
+            if (Has(node, "REVERT")) result.OnConflict = "revert";
+            auto* target = Child(node, "into_simple_table_ref");
+            if (Has(target, "ERASE")) Unsupported(target, EFeature::Statement, "ERASE BY");
+            simple = Child(target, "simple_table_ref");
+        }
+        if (Child(simple, "table_hints")) Unsupported(simple, EFeature::Statement, "write table hints");
+        auto* core = Child(simple, "simple_table_ref_core");
+        auto* object = Child(core, "object_ref");
+        if (!object || Child(object, "cluster_expr")) Unsupported(core, EFeature::Statement, "qualified or dynamic write targets");
+        auto* id = Child(object, "id_or_at");
+        if (Has(id, "@")) Unsupported(id, EFeature::Statement, "anonymous write target");
+        result.Target.Position = Position(simple); result.Target.Name = Id(id);
+        if (into || Has(node, "ON")) {
+            auto* values = Child(node, "into_values_source");
+            if (auto* columns = Child(values, "pure_column_list"))
+                for (auto* column : Children(columns, "an_id")) result.Columns.push_back(Id(column));
+            auto* input = Child(values, "values_source");
+            if (!input) Unsupported(values, EFeature::Statement, "DEFAULT VALUES");
+            if (auto* select = Child(input, "select_stmt")) result.Input = Select(select);
+            else {
+                auto* rows = Child(Child(input, "values_stmt"), "values_source_row_list");
+                for (auto* row : Children(rows, "values_source_row")) {
+                    auto& output = result.Rows.emplace_back();
+                    for (auto* expr : Children(Child(row, "expr_list"), "expr")) output.push_back(Expr(expr));
+                }
+            }
+        } else {
+            if (auto* where = Child(node, "expr")) result.Where = Expr(where);
+            if (result.Kind == EWriteKind::Update) {
+                auto* clauses = Child(Child(node, "set_clause_choice"), "set_clause_list");
+                if (!clauses) Unsupported(node, EFeature::Statement, "multiple-column UPDATE assignment");
+                for (auto* clause : Children(clauses, "set_clause"))
+                    result.Assignments.push_back({Expr(Child(clause, "expr")), Id(Child(Child(clause, "set_target"), "column_name"))});
+            }
+        }
+        if (auto* returning = Child(node, "returning_columns_list")) {
+            result.ReturningAll = Has(returning, "*");
+            for (auto* column : Children(returning, "an_id")) result.Returning.push_back(Id(column));
+        }
+        return result;
+    }
+
     TStatement Statement(TTree* node) {
         const auto name = Name(node);
+        if (name == "into_table_stmt" || name == "update_stmt" || name == "delete_stmt") {
+            TStatement result{EStatementKind::Write, Position(node)}; result.Write = std::make_shared<TWriteStatement>(Write(node)); return result;
+        }
         if (name == "select_stmt") {
             TStatement result{EStatementKind::Query, Position(node)}; result.Query = Select(node); return result;
         }
@@ -877,6 +933,16 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
         for (const auto& parameter : statement.Parameters) text(parameter);
         expr(statement.Expression); if (statement.Query) select(*statement.Query);
+        if (statement.Write) {
+            const auto& write = *statement.Write;
+            out << 'W' << static_cast<int>(write.Kind) << write.Batch << write.ReturningAll;
+            source(write.Target); text(write.OnConflict);
+            out << '['; for (const auto& column : write.Columns) text(column); out << ']';
+            if (write.Input) select(*write.Input);
+            out << '['; for (const auto& row : write.Rows) { out << '['; for (auto value : row) expr(value); out << ']'; } out << ']';
+            expr(write.Where); named(write.Assignments);
+            out << '['; for (const auto& column : write.Returning) text(column); out << ']';
+        }
     }
     return out.str();
 }

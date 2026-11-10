@@ -35,7 +35,7 @@ public:
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
     Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval,
-    Date32, Datetime64, Timestamp64, Interval64, Json, JsonDocument,
+    Date32, Datetime64, Timestamp64, Interval64, Uuid, Json, JsonDocument,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
     Calendar, Tuple, List,
@@ -108,13 +108,14 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears,
-    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, TupleElement,
 };
 
 struct TExprNode {
     // Keep the column ID beside the opcode and the type after the name so the
     // tuple shape ID uses existing alignment space instead of growing nodes.
     EOpcode Op;
+    bool Repeatable = true;
     TColumnId ColumnId;
     TSourcePosition Position;
     std::vector<TExprId> Arguments;
@@ -145,6 +146,7 @@ public:
     void ValidateType(TType type, TSourcePosition position = {}) const;
 
     TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
+    TExprId TupleElement(TExprId tuple, std::uint32_t index, TSourcePosition position = {});
     TExprId InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position = {});
     TExprId Literal(TType type, TScalar value, TSourcePosition position = {});
     TExprId Null(TSourcePosition position = {});
@@ -169,6 +171,9 @@ public:
     // JSON and binary JSON inputs are opaque runtime values. The literal path
     // is compiled by the existing JSON runtime after the RBO boundary.
     TExprId JsonValue(TExprId input, std::string path, TSourcePosition position = {});
+    // Runtime LIKE matching. Input may be NULL (false); pattern is required.
+    // SQL literal-pattern simplifications belong to the binding layer.
+    TExprId Like(TExprId input, TExprId pattern, std::string escape = {}, TSourcePosition position = {});
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
@@ -217,6 +222,10 @@ struct TEvaluationContext {
     // Optional reference-execution service; the compiler has no JSON runtime
     // dependency. JSON_VALUE remains directly lowerable without this callback.
     std::function<TValue(const TValue&, std::string_view)> JsonValue;
+    // Runtime service for nondeterministic UUID generation. Dependency values
+    // order evaluation; they are not random seeds. One reached node runs once.
+    std::function<std::string()> RandomUuid = {};
+    std::function<bool(const TValue&, std::string_view, std::string_view)> Like = {};
 };
 
 TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationContext& context = {});

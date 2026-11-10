@@ -31,9 +31,18 @@ private:
     std::variant<TType, TRows, TList> Value;
 };
 
+// A missing write schema identifies a read-only catalog object. Storage keys
+// and defaults belong to table metadata, not scalar/parameter field types.
+struct TWriteSchema {
+    std::vector<std::string> Keys;
+    std::vector<std::string> DefaultColumns;
+    bool HasIndexes = false;
+};
+
 struct TCatalogTable {
     std::string Name;
     std::vector<TCatalogColumn> Columns;
+    std::optional<TWriteSchema> WriteSchema = {};
 };
 
 using TTableResolver = std::function<TCatalogTable(std::string_view, TSourcePosition)>;
@@ -72,7 +81,17 @@ struct TWindowFunction {
     std::string Function;
 };
 
-enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window, Parameter, Reuse };
+enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window, Parameter, Reuse, Effect };
+
+struct TBoundEffect {
+    EWriteKind Kind;
+    std::vector<std::pair<TColumnId, std::string>> Columns;
+    std::vector<std::pair<TColumnId, std::string>> Returning;
+    bool HasIndexes = false;
+    bool InputRows = false;
+    bool Batch = false;
+    std::string OnConflict;
+};
 
 struct TCapture {
     TColumnId Local;
@@ -106,6 +125,7 @@ struct TRelation {
     // Window partition/order keys use GroupKeys/SortKeys; arguments are ordinary columns.
     std::vector<TWindowFunction> WindowFunctions;
     TWindowFrame WindowFrame;
+    std::shared_ptr<const TBoundEffect> Effect;
 };
 
 struct TResultColumn {

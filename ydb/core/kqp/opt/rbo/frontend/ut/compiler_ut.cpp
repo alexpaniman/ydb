@@ -32,6 +32,133 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(InlineWindowsUseTheFastParserAndAgreeWithTheGrammar) {
+        for (const auto* spec : {"", "PARTITION BY id", "ORDER BY id DESC, value ASC", "PARTITION BY value ORDER BY id",
+                "ROWS UNBOUNDED PRECEDING", "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW",
+                "ORDER BY id RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+                "PARTITION BY id ORDER BY value ROWS BETWEEN (1 + 2) PRECEDING AND 4 FOLLOWING",
+                "GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"}) {
+            const std::string sql = "SELECT ROW_NUMBER() OVER (" + std::string(spec) + ") AS n FROM t";
+            TCompilerSettings fast; fast.Parser = EParser::Handwritten;
+            const auto parsed = ParseNative(sql, fast);
+            UNIT_ASSERT(!parsed.UsedGeneratedParser);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(parsed), SyntaxFingerprint(ParseGrammar(sql)));
+            AssertParserAgreement(sql);
+        }
+        for (const auto* sql : {
+                "SELECT SUM(value) OVER(PARTITION BY id ORDER BY value ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t",
+                "SELECT ROW_NUMBER() OVER() AS n, DENSE_RANK() OVER(ORDER BY id) AS r FROM t",
+                "SELECT id FROM (SELECT id, ROW_NUMBER() OVER() AS n FROM t) AS s WHERE n > 1ul"}) {
+            TCompilerSettings verify; verify.Parser = EParser::Verify;
+            UNIT_ASSERT(CompileNative(sql, Catalog, verify).Program);
+            const std::string text(sql);
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                AssertParserAgreement(text.substr(0, i) + text.substr(i + 1));
+                AssertParserAgreement(text.substr(0, i) + "," + text.substr(i));
+            }
+        }
+    }
+
+
+    Y_UNIT_TEST(ValueByAggregatesLowerToExistingMinMaxStates) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                "SELECT MIN_BY(value, id) AS lo, MAX_BY(value, id) AS hi FROM a",
+                "SELECT id, MIN_BY(id, value) AS lo, MAX_BY(id, value) AS hi FROM a GROUP BY id",
+                "SELECT MIN_BY(value, NULL) AS lo FROM a",
+                "SELECT MIN_BY(NULL, id) AS lo FROM a"}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                bool found = false;
+                for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Aggregate) {
+                    found = true;
+                    for (const auto& aggregate : relation.Aggregates) {
+                        UNIT_ASSERT(aggregate.Function == "min" || aggregate.Function == "max");
+                        UNIT_ASSERT(program.Columns[aggregate.Input].Type.Kind == ETypeKind::Tuple);
+                    }
+                }
+                UNIT_ASSERT_C(found, sql);
+                for (const auto& column : program.Results.front().Columns) UNIT_ASSERT(!column.Type.IsCollection());
+            }
+        }
+    }
+
+    Y_UNIT_TEST(DecimalListMembershipPreservesTheExactKeyType) {
+        const auto compiled = CompileNative(R"(
+            DECLARE $items AS List<Decimal(1,0)?>;
+            DECLARE $key AS Decimal(1,0)?;
+            SELECT $key IN $items AS found;
+        )", Catalog);
+        UNIT_ASSERT(compiled.Program->Get().Results.front().Columns.front().Type == (TType{ETypeKind::Bool, true}));
+    }
+
+
+    Y_UNIT_TEST(LikeEscapeHasOneNativeSyntaxAndBindingPath) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                "DECLARE $p AS String; SELECT 'a_b' LIKE $p ESCAPE '#' AS yes",
+                "SELECT 'a_b' LIKE 'a#_b' ESCAPE '#' AS yes",
+                "SELECT 'a%b' NOT LIKE 'a#%c' ESCAPE '#' AS yes",
+                "SELECT 'a#b' LIKE 'a##b' ESCAPE '#' AS yes",
+                "SELECT 'a.b' LIKE 'a_b' AS yes",
+                "SELECT 'a.b' LIKE 'a._' ESCAPE '.' AS yes"}) {
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(result.Program, sql);
+                UNIT_ASSERT(result.Program->Get().Results.front().Columns.front().Type == TType{ETypeKind::Bool});
+            }
+            for (const auto* sql : {
+                "SELECT 'x' LIKE 'x' ESCAPE ''", "SELECT 'x' LIKE 'x' ESCAPE 'ab'",
+                "SELECT 'x' LIKE 'x' ESCAPE '%'", "SELECT 'x' LIKE 'x' ESCAPE '_'",
+                "SELECT 'x' LIKE 'x' ESCAPE 'é'", "SELECT 'x' LIKE 'x' ESCAPE Utf8('#')",
+                "SELECT 'x' LIKE 'x#' ESCAPE '#'",
+                "DECLARE $e AS String; SELECT 'x' LIKE 'x' ESCAPE $e"})
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
+        }
+    }
+
+
+    Y_UNIT_TEST(StandardWindowAliasesAndUuidCrossTheCheckedBoundary) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                SELECT CAST(RandomUuid(id) AS Utf8) AS uuid,
+                    ROW_NUMBER() OVER () AS number, DENSE_RANK() OVER (ORDER BY id) AS rank FROM t;
+            )", Catalog, settings);
+            const auto& result = compiled.Program->Get().Results.front();
+            UNIT_ASSERT(result.Columns[0].Type == TType{ETypeKind::Utf8});
+            UNIT_ASSERT(result.Columns[1].Type == TType{ETypeKind::Uint64});
+            UNIT_ASSERT(result.Columns[2].Type == TType{ETypeKind::Uint64});
+        }
+    }
+
+    Y_UNIT_TEST(TemporalListMembershipBindsWithNativeKeyTypes) {
+        const auto compiled = CompileNative(R"(
+            DECLARE $values AS List<Timestamp64>;
+            DECLARE $key AS Timestamp64?;
+            SELECT $key IN $values AS found;
+        )", Catalog);
+        UNIT_ASSERT(compiled.Program->Get().Results.front().Columns.front().Type == (TType{ETypeKind::Bool, true}));
+    }
+
+    Y_UNIT_TEST(ExtendedTemporalCatalogAndParametersUseTheCheckedCompiler) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                DECLARE $boundary AS Timestamp64;
+                SELECT CAST(ts AS Timestamp64) AS ts, CAST(ts AS Datetime64) AS seconds,
+                    CAST(ts AS Int64) AS ticks FROM t WHERE ts <= $boundary;
+            )", [](std::string_view name, TSourcePosition) {
+                return TCatalogTable{std::string(name), {{"ts", {ETypeKind::Timestamp64}}}};
+            }, settings);
+            const auto& columns = compiled.Program->Get().Results.at(0).Columns;
+            UNIT_ASSERT(columns[0].Type == TType{ETypeKind::Timestamp64});
+            UNIT_ASSERT(columns[1].Type == TType{ETypeKind::Datetime64});
+            UNIT_ASSERT(columns[2].Type == TType{ETypeKind::Int64});
+        }
+    }
+
     Y_UNIT_TEST(QuotedStructTagsBindThroughBothParsers) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
@@ -828,7 +955,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     Y_UNIT_TEST(OnlyUnsupportedPermitsFallback) {
         TCompilerSettings settings;
         settings.Mode = ECompilerMode::Auto;
-        for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT row_number() OVER ()", "SELECT * FROM a JOIN b USING(id)",
+        for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT LAG(value) OVER () FROM a", "SELECT * FROM a JOIN b USING(id)",
                                "PRAGMA foo='x'; SELECT 1",
                                "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
                                "SELECT 'a''b'", "SELECT 1 AS 'answer'", "$'x' = 1; SELECT 1",

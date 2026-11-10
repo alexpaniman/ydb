@@ -81,7 +81,6 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
     Y_UNIT_TEST(CompleteGrammarAndExplicitSubset) {
         for (auto sql : {
             "CREATE TABLE t (id Uint64, PRIMARY KEY(id));",
-            "UPSERT INTO t (id) VALUES (1);",
             "SELECT id FROM t GROUP COMPACT BY id;",
         }) {
             ValidateGrammar(sql);

@@ -379,7 +379,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         for (const auto& definition : Find(program, ERelation::Map).Definitions) {
             UNIT_ASSERT(std::get<bool>(Evaluate(program.Expressions, definition.Expression).Data));
         }
-        UNIT_ASSERT_EXCEPTION(Compile("SELECT 'abc' LIKE 'a_c'", Catalog), TFrontendError);
+        UNIT_ASSERT(CompileNative("SELECT 'abc' LIKE 'a_c'", Catalog).Program);
     }
 
     Y_UNIT_TEST(PercentLikePatternsMatchIndependentWildcardTable) {
@@ -417,8 +417,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
                 UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(Evaluate(program.Expressions, expression, context).Data), match(input, pattern), input + " LIKE " + pattern);
             }
         }
-        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT 'abc' LIKE 'a_c'", Catalog), TUnsupportedFeature);
-        UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $p AS String; SELECT 'abc' LIKE $p", Catalog), TUnsupportedFeature);
+        UNIT_ASSERT(CompileNative("SELECT 'abc' LIKE 'a_c'", Catalog).Program);
+        UNIT_ASSERT(CompileNative("DECLARE $p AS String; SELECT 'abc' LIKE $p", Catalog).Program);
     }
 
     Y_UNIT_TEST(LinearProjectionGrowth) {

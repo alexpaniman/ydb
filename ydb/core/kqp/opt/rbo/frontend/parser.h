@@ -117,7 +117,25 @@ struct TSelect {
     }
 };
 
-enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use };
+enum class EWriteKind : std::uint8_t { Insert, Upsert, Replace, Update, Delete };
+
+// Writes keep their input query/values and target separate. Binding resolves
+// storage names, coercions and defaults before constructing an effect relation.
+struct TWriteStatement {
+    EWriteKind Kind;
+    TSource Target;
+    std::vector<std::string> Columns;
+    std::shared_ptr<TSelect> Input;
+    std::vector<std::vector<TSyntaxId>> Rows;
+    TSyntaxId Where = NoSyntax;
+    std::vector<TNamedExpr> Assignments;
+    std::vector<std::string> Returning;
+    bool ReturningAll = false;
+    bool Batch = false;
+    std::string OnConflict;
+};
+
+enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use, Write };
 
 struct TStatement {
     TStatement(EStatementKind kind, TSourcePosition position) : Kind(kind), Position(position) {}
@@ -127,6 +145,7 @@ struct TStatement {
     std::string Value;
     TSyntaxId Expression = NoSyntax;
     std::shared_ptr<TSelect> Query;
+    std::shared_ptr<TWriteStatement> Write;
     std::vector<std::string> Parameters;
     bool Lambda = false;
     bool ScalarList = false;

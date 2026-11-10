@@ -24,7 +24,7 @@ using O = EOpcode;
 
 constexpr std::string_view TypeNames[]{"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
     "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval",
-    "Date32", "Datetime64", "Timestamp64", "Interval64", "Json", "JsonDocument", "Calendar", "Tuple", "List"};
+    "Date32", "Datetime64", "Timestamp64", "Interval64", "Uuid", "Json", "JsonDocument", "Calendar", "Tuple", "List"};
 static_assert(std::size(TypeNames) == static_cast<unsigned>(K::List) + 1);
 
 bool EqualAsciiCase(std::string_view left, std::string_view right) {
@@ -184,12 +184,16 @@ std::int64_t DateUnit(K kind) {
         kind == K::Datetime || kind == K::Datetime64 ? 1'000'000 : 1;
 }
 
+std::pair<std::int64_t, std::int64_t> TemporalBounds(K kind) {
+    if (kind == K::Interval) return {-TimestampLimit + 1, TimestampLimit - 1};
+    if (kind == K::Interval64) return {-MaxInterval64, MaxInterval64};
+    if (TType{kind}.IsExtendedTemporal()) return {MinTimestamp64 / DateUnit(kind), MaxTimestamp64 / DateUnit(kind)};
+    return {0, TimestampLimit / DateUnit(kind) - 1};
+}
+
 bool FitsTemporal(__int128 value, K kind) {
-    if (kind == K::Interval) return value > -TimestampLimit && value < TimestampLimit;
-    if (kind == K::Interval64) return value >= -MaxInterval64 && value <= MaxInterval64;
-    if (TType{kind}.IsExtendedTemporal())
-        return value >= MinTimestamp64 / DateUnit(kind) && value <= MaxTimestamp64 / DateUnit(kind);
-    return value >= 0 && value < TimestampLimit / DateUnit(kind);
+    const auto [minimum, maximum] = TemporalBounds(kind);
+    return value >= minimum && value <= maximum;
 }
 
 std::chrono::year_month_day CalendarDate(std::uint64_t micros) {
@@ -288,6 +292,7 @@ std::optional<std::int64_t> ParseTemporal(std::string_view text, K kind) {
     const bool negativeYear = extended && consume('-');
     if (extended && !negativeYear) consume('+');
     int year = component(extended ? 6 : 4);
+    if (year < 0) return {};
     if (negativeYear) year = -year;
     if (extended && (year == 0 || year < -144169 || year >= 148108)) return {};
     // Civil years have no year zero; Gregorian arithmetic uses astronomical years.
@@ -682,6 +687,38 @@ std::optional<double> FloatingValue(const TValue& value) {
     return integral ? std::optional<double>{static_cast<double>(*integral)} : std::nullopt;
 }
 
+// UUID values carry 16 bytes, independent of their canonical text spelling.
+constexpr unsigned UuidByteOrder[]{3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15};
+std::optional<std::string> ParseUuid(std::string_view text) {
+    if (text.size() != 36) return {};
+    std::string bytes(16, '\0');
+    std::size_t offset = 0;
+    const auto digit = [](char ch) -> int {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+        if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+        return -1;
+    };
+    for (unsigned i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) if (text[offset++] != '-') return {};
+        const int high = digit(text[offset++]), low = digit(text[offset++]);
+        if (high < 0 || low < 0) return {};
+        bytes[UuidByteOrder[i]] = static_cast<char>((high << 4) | low);
+    }
+    return bytes;
+}
+std::string FormatUuid(std::string_view bytes) {
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(36);
+    for (unsigned i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) result += '-';
+        const auto byte = static_cast<unsigned char>(bytes[UuidByteOrder[i]]);
+        result += digits[byte >> 4]; result += digits[byte & 15];
+    }
+    return result;
+}
+
 TValue ConvertValue(const TValue& value, TType target) {
     if (value.IsNull()) {
         return NullValue(target);
@@ -697,6 +734,11 @@ TValue ConvertValue(const TValue& value, TType target) {
         }
         if (target.Kind == K::Utf8 && !IsUtf8(text)) return NullValue(target);
         return {target, std::move(text)};
+    }
+    if (target.Kind == K::Uuid) {
+        const auto* text = std::get_if<std::string>(&value.Data);
+        const auto bytes = text ? ParseUuid(*text) : std::nullopt;
+        return bytes ? TValue{target, *bytes} : NullValue(target);
     }
     if (target.Kind == K::Bool) {
         if (const auto* string = std::get_if<std::string>(&value.Data)) {
@@ -830,8 +872,9 @@ void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePo
             const int width = PayloadWidth(value.Type.Kind);
             valid = IsDate(value.Type.Kind) ? FitsTemporal(*number, value.Type.Kind) : FitsUnsigned(*number, width);
         }
-    } else if (value.Type.IsString() || value.Type.IsJson()) {
+    } else if (value.Type.IsString() || value.Type.IsJson() || value.Type.Kind == K::Uuid) {
         valid = std::holds_alternative<std::string>(value.Data);
+        if (valid && value.Type.Kind == K::Uuid) valid = std::get<std::string>(value.Data).size() == 16;
         if (valid && value.Type.Kind == K::Utf8) valid = IsUtf8(std::get<std::string>(value.Data));
     } else if (value.Type.Kind == K::Bool) {
         valid = std::holds_alternative<bool>(value.Data);
@@ -1022,6 +1065,15 @@ TExprId TExpressionArena::Collection(std::span<const TExprId> items, bool list, 
     return Append({O::Collection, type, position, std::move(arguments), {}, {}, 0});
 }
 
+TExprId TExpressionArena::TupleElement(TExprId tuple, std::uint32_t index, TSourcePosition position) {
+    const auto source = (*this)[tuple].Type;
+    if (source.Kind != K::Tuple || source.OptionalDepth > 1) Fail(position, "Tuple element requires a flat tuple");
+    const auto items = TupleItems(source);
+    if (index >= items.size()) Fail(position, "Tuple element index is out of range");
+    const auto type = source.OptionalDepth && items[index].Kind != K::Null ? items[index].Optional() : items[index];
+    return Append({O::TupleElement, type, position, {tuple}, std::uint64_t{index}, {}, 0});
+}
+
 TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position) {
     const auto value = (*this)[lookup].Type, values = (*this)[collection].Type;
     if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsJson())
@@ -1053,9 +1105,12 @@ TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool 
             result = If(Unary(O::IsNull, lookup, position), Literal(resultType, {}, position), result, position);
         return Convert(result, resultType, position);
     }
-    if (values.Kind != K::List || !(item.IsIntegral() || item.IsString() || item.Kind == K::Bool || item.Kind == K::Null) ||
-        !(value.IsIntegral() || value.IsString() || value.Kind == K::Double || value.Kind == K::Bool || value.Kind == K::Null))
-        throw TUnsupportedFeature(EFeature::Type, position, "runtime IN lists currently require integer, string or Boolean keys");
+    const bool exactKey = value.Required() == item.Required() &&
+        (item.IsDate() || item.IsInterval() || item.Kind == K::Uuid || item.Kind == K::Decimal);
+    if (values.Kind != K::List || (!exactKey &&
+        (!(item.IsIntegral() || item.IsString() || item.Kind == K::Bool || item.Kind == K::Null) ||
+         !(value.IsIntegral() || value.IsString() || value.Kind == K::Double || value.Kind == K::Bool || value.Kind == K::Null))))
+        throw TUnsupportedFeature(EFeature::Type, position, "unsupported scalar types for runtime IN dictionary lookup");
     return Append({O::InCollection, resultType, position, {lookup, collection}, {}, ansi ? "ansi" : "legacy", 0});
 }
 
@@ -1081,10 +1136,12 @@ TExprId TExpressionArena::Append(TExprNode node) {
     if (Nodes_.size() == std::numeric_limits<TExprId>::max()) {
         Fail(node.Position, "Too many expressions");
     }
+    node.Repeatable = node.Op != O::RandomUuid;
     for (auto arg : node.Arguments) {
         if (arg >= Nodes_.size()) {
             Fail(node.Position, "Expression arguments must precede their consumer");
         }
+        node.Repeatable &= Nodes_[arg].Repeatable;
     }
     const auto id = static_cast<TExprId>(Nodes_.size());
     Nodes_.push_back(std::move(node));
@@ -1127,6 +1184,16 @@ TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition p
     if ((*this)[input].Type.Kind == K::Null) return Literal(target, {}, position);
     if ((*this)[input].Type.OptionalDepth > 1 || target.OptionalDepth > 1)
         throw TUnsupportedFeature(EFeature::Type, position, "implicit conversion between nested optional scalar types is outside the native profile");
+    // SQL permits fitting integer literals and valid UTF-8 string literals in
+    // an otherwise narrower target. Dynamic values still obey implicit ranks.
+    const auto& source = (*this)[input];
+    if (source.Op == O::Literal && source.Type.OptionalDepth <= target.OptionalDepth &&
+        !std::holds_alternative<std::monostate>(source.Value) &&
+        ((source.Type.IsIntegral() && target.IsIntegral()) ||
+         (source.Type.Kind == K::String && target.Kind == K::Utf8))) {
+        auto value = ConvertValue({source.Type, source.Value}, target.Optional());
+        if (!value.IsNull()) return Literal(target, std::move(value.Data), position);
+    }
     if (CommonType((*this)[input].Type, target, position) != target) {
         Fail(position, "Implicit conversion cannot narrow " + (*this)[input].Type.ToString() + " to " + target.ToString());
     }
@@ -1196,7 +1263,7 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     if (source.IsString() && !target.IsString()) {
         const auto& node = (*this)[input];
         if (node.Op != O::Literal) {
-            if (target.IsIntegral() || target.Kind == K::Bool || target.Kind == K::Float || target.Kind == K::Double || target.Kind == K::Date || target.Kind == K::Decimal)
+            if (target.IsIntegral() || target.Kind == K::Bool || target.Kind == K::Float || target.Kind == K::Double || target.Kind == K::Date || target.Kind == K::Decimal || target.Kind == K::Uuid)
                 return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
             throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
         }
@@ -1209,17 +1276,22 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     // float, float narrowing and integral truth conversion are total in YQL.
     const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
     const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
-    const bool total =
+    const bool temporalInteger = (source.IsDate() || source.IsInterval()) && target.IsIntegral() && [&] {
+        const auto [minimum, maximum] = TemporalBounds(source.Kind);
+        return target.IsSigned() ? FitsSigned(minimum, Width(target.Kind)) && FitsSigned(maximum, Width(target.Kind)) :
+            FitsUnsigned(minimum, Width(target.Kind)) && FitsUnsigned(maximum, Width(target.Kind));
+    }();
+    const bool total = temporalInteger ||
         (source.IsDate() && target.IsDate() && (!source.IsExtendedTemporal() || target.IsExtendedTemporal())) ||
         (source.Kind == K::Interval && target.Kind == K::Interval64) ||
         (source.IsIntegral() && (target.IsDate() || target.IsInterval()) &&
             FitsTemporal(source.IsSigned() ? -(__int128{1} << (Width(source.Kind) - 1)) : 0, target.Kind) &&
             FitsTemporal((__int128{1} << (Width(source.Kind) - source.IsSigned())) - 1, target.Kind)) ||
-        (targetFloat && (source.IsIntegral() || sourceFloat || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
+        (targetFloat && (source.IsIntegral() || sourceFloat || source.IsDate() || source.IsInterval() || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
         (target.Kind == K::Decimal && (source.IsIntegral() || source.Kind == K::Decimal)) ||
         (source.Kind == K::Bool && target.IsIntegral()) ||
         (target.Kind == K::Bool && source.IsIntegral()) ||
-        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8 || source.Kind == K::Decimal));
+        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8 || source.Kind == K::Decimal || source.Kind == K::Uuid));
     target.OptionalDepth = std::max<std::uint8_t>(target.OptionalDepth, source.OptionalDepth || !total);
     return Append({O::Cast, target, position, {input}, {}, {}, 0});
 }
@@ -1335,6 +1407,11 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         if (leftType.IsIntegral()) std::swap(left, right);
         return Append({op, result, position, {left, right}, {}, {}, 0});
     }
+    if (IsComparison(op) && leftType.Kind == K::Decimal && rightType.Kind == K::Decimal) {
+        // Comparison does not require constructing a common Decimal value.
+        // Preserve scales for the runtime's scale-aware comparison primitive.
+        return Append({op, {K::Bool, std::max(leftType.OptionalDepth, rightType.OptionalDepth)}, position, {left, right}, {}, {}, 0});
+    }
     auto common = CommonType(leftType, rightType, position);
     auto result = common;
     if (op == O::And || op == O::Or) {
@@ -1433,6 +1510,20 @@ TExprId TExpressionArena::Find(TExprId input, TExprId needle, TExprId offset, TS
     return Append({O::Find, {K::Uint32, true}, position, {input, needle, offset}, {}, {}, 0});
 }
 
+TExprId TExpressionArena::Like(TExprId input, TExprId pattern, std::string escape, TSourcePosition position) {
+    const auto inputType = (*this)[input].Type, patternType = (*this)[pattern].Type;
+    if ((!inputType.IsString() && inputType.Kind != K::Null) || inputType.OptionalDepth > 1)
+        Fail(position, "LIKE requires a string input");
+    if (!patternType.IsString() || patternType.OptionalDepth)
+        Fail(position, "LIKE requires a non-null string pattern");
+    if (!escape.empty() && (escape.size() != 1 || static_cast<unsigned char>(escape[0]) >= 128 ||
+        escape[0] == '%' || escape[0] == '_' || escape[0] == '\\'))
+        Fail(position, "LIKE escape must be one ASCII character other than %, _ or backslash");
+    input = Convert(input, {K::String, true}, position);
+    pattern = Convert(pattern, {K::String}, position);
+    return Append({O::Like, {K::Bool}, position, {input, pattern}, {}, std::move(escape), 0});
+}
+
 TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosition position) {
     if (!(*this)[input].Type.IsJson()) Fail(position, "JSON_VALUE expects Json or JsonDocument");
     if (!IsUtf8(path)) Fail(position, "JSON path must be valid UTF-8");
@@ -1442,6 +1533,28 @@ TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosi
 
 TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position) {
     const auto lowered = Lower(name);
+    if (lowered == "ensure") {
+        if (arguments.size() < 2 || arguments.size() > 3) Fail(position, "Ensure expects two or three arguments");
+        const auto predicate = (*this)[arguments[1]].Type;
+        if (predicate.Kind != K::Bool || predicate.OptionalDepth > 1) Fail(position, "Ensure requires a Boolean predicate");
+        std::string message;
+        if (arguments.size() == 3) {
+            const auto& text = (*this)[arguments[2]];
+            if (text.Op != O::Literal || !text.Type.IsString() || text.Type.OptionalDepth)
+                throw TUnsupportedFeature(EFeature::Expression, position, "Ensure message requires a string literal");
+            message = std::get<std::string>(text.Value);
+        }
+        auto condition = arguments[1];
+        if (predicate.OptionalDepth) {
+            const TExprId alternatives[]{condition, Literal({K::Bool}, false, position)};
+            condition = Coalesce(alternatives, position);
+        }
+        return Ensure(arguments[0], condition, std::move(message), position);
+    }
+    if (lowered == "randomuuid") {
+        for (const auto argument : arguments) (void)(*this)[argument];
+        return Append({O::RandomUuid, {K::Uuid}, position, {arguments.begin(), arguments.end()}, {}, {}, 0});
+    }
     if (lowered == "just") {
         if (arguments.size() != 1) Fail(position, "Just expects one argument");
         return Unary(O::OptionalWrap, arguments[0], position);
@@ -1626,7 +1739,9 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
 
 TExprId TExpressionArena::Rebuild(TExprNode node) {
     switch (node.Op) {
+        case O::RandomUuid: return Call("RandomUuid", node.Arguments, node.Position);
         case O::Collection: return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
+        case O::TupleElement: return TupleElement(node.Arguments[0], std::get<std::uint64_t>(node.Value), node.Position);
         case O::InCollection: return InCollection(node.Arguments[0], node.Arguments[1], node.Name == "ansi", node.Position);
         case O::Literal: return Literal(node.Type, std::move(node.Value), node.Position);
         case O::Column: return Column(node.ColumnId, node.Type, node.Position);
@@ -1641,6 +1756,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Unwrap: return Call("Unwrap", node.Arguments, node.Position);
         case O::Find: return Find(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         case O::JsonValue: return JsonValue(node.Arguments[0], std::move(node.Name), node.Position);
+        case O::Like: return Like(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -1724,6 +1840,7 @@ TExprId TExpressionArena::Rewrite(TExprId root, const std::function<TExprId(TExp
 }
 
 TExprId TExpressionArena::FactorCommonConjuncts(TExprId root) {
+    if (!(*this)[root].Repeatable) return root;
     const auto type = (*this)[root].Type;
     const auto pos = (*this)[root].Position;
     const auto unlift = [&](TExprId id) {
@@ -1840,6 +1957,7 @@ std::string FormatValue(const TValue& value) {
         return "NULL";
     }
     if (auto p = std::get_if<std::string>(&value.Data)) {
+        if (value.Type.Kind == K::Uuid) return FormatUuid(*p);
         return *p;
     }
     if (auto p = std::get_if<bool>(&value.Data)) {
@@ -1940,7 +2058,7 @@ std::string StablePickle(const TValue& value) {
                 payload.push_back(static_cast<char>(coefficient < 0 ? 0x7f - bytes : 0x80 + bytes));
                 while (bytes) payload.push_back(static_cast<char>(bits >> (8 * --bytes)));
             }
-        } else if (value.Type.IsString()) {
+        } else if (value.Type.IsString() || kind == K::Uuid) {
             payload = std::get<std::string>(value.Data);
         } else {
             throw std::logic_error("invalid native stable key type");
@@ -1965,6 +2083,12 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         auto result = std::make_shared<TTupleValue>();
         for (auto id : node.Arguments) result->Items.push_back(*values[id]);
         return {node.Type, TTuple(std::move(result))};
+    }
+    if (node.Op == O::TupleElement) {
+        const auto& tuple = argument(0);
+        if (tuple.IsNull()) return {node.Type, {}};
+        const auto& item = std::get<TTuple>(tuple.Data)->Items.at(std::get<std::uint64_t>(node.Value));
+        return ConvertValue(item, node.Type);
     }
     if (node.Op == O::InCollection) {
         const auto& lookup = argument(0);
@@ -2108,7 +2232,18 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         } else {
             const auto leftNumber = left.Type.Kind == K::Decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
             const auto rightNumber = right.Type.Kind == K::Decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
-            order = (leftNumber > rightNumber) - (leftNumber < rightNumber);
+            if (left.Type.Kind == K::Decimal && right.Type.Kind == K::Decimal &&
+                !IsDecimalSpecial(leftNumber) && !IsDecimalSpecial(rightNumber) && left.Type.Scale != right.Type.Scale) {
+                // Divide the finer coefficient rather than multiplying the
+                // coarser one: both precision-35 operands stay within Int128.
+                const bool leftFine = left.Type.Scale > right.Type.Scale;
+                const auto fine = leftFine ? leftNumber : rightNumber;
+                const auto coarse = leftFine ? rightNumber : leftNumber;
+                const auto divisor = Power10(leftFine ? left.Type.Scale - right.Type.Scale : right.Type.Scale - left.Type.Scale);
+                const auto quotient = fine / divisor, remainder = fine % divisor;
+                order = quotient == coarse ? (remainder > 0) - (remainder < 0) : (quotient > coarse) - (quotient < coarse);
+                if (!leftFine) order = -order;
+            } else order = (leftNumber > rightNumber) - (leftNumber < rightNumber);
         }
         const bool result = node.Op == O::Equal ? order == 0 : node.Op == O::NotEqual ? order != 0 :
             node.Op == O::Less ? order < 0 : node.Op == O::LessEqual ? order <= 0 : node.Op == O::Greater ? order > 0 : order >= 0;
@@ -2308,6 +2443,13 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             auto value = context.JsonValue(*values[node.Arguments[0]], node.Name);
             if (value.Type != node.Type) Fail(node.Position, "JSON_VALUE runtime returned an unexpected type");
             finish(std::move(value));
+        } else if (node.Op == O::Like) {
+            if (!context.Like) Fail(node.Position, "LIKE reference execution requires a pattern matching service");
+            finish({node.Type, context.Like(*values[node.Arguments[0]],
+                std::get<std::string>(values[node.Arguments[1]]->Data), node.Name)});
+        } else if (node.Op == O::RandomUuid) {
+            if (!context.RandomUuid) Fail(node.Position, "Missing UUID generation service");
+            finish({node.Type, context.RandomUuid()});
         } else finish(Execute(node, values));
     }
     return *values[root];
@@ -2327,7 +2469,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
         // Path compilation and JSON evaluation belong to the execution runtime,
         // including invalid-path errors and NULL inputs. Never invoke it here.
-        if (node.Op == O::JsonValue) return retain();
+        if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::Like) return retain();
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];
