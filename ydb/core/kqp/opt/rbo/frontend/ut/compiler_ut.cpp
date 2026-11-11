@@ -1131,7 +1131,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     Y_UNIT_TEST(OnlyUnsupportedPermitsFallback) {
         TCompilerSettings settings;
         settings.Mode = ECompilerMode::Auto;
-        for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT LAG(value) OVER () FROM a", "SELECT * FROM a JOIN b USING(id)",
+        for (const auto* sql : {"SELECT ListReverse([1, 2])", "SELECT LAG(value) OVER () FROM a", "SELECT * FROM a JOIN b USING(id)",
                                "PRAGMA foo='x'; SELECT 1",
                                "SELECT * FROM a CROSS JOIN b",
                                "SELECT value + 1 FROM a GROUP BY value + 1",
@@ -1152,7 +1152,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
 
     Y_UNIT_TEST(RequiredAndLegacyModesAreExplicit) {
         TCompilerSettings settings;
-        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT ListLength([1, 2])", Catalog, settings), TUnsupportedFeature);
+        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT ListReverse([1, 2])", Catalog, settings), TUnsupportedFeature);
         settings.Mode = ECompilerMode::Legacy;
         const auto result = CompileNative("not parsed in legacy mode", [](auto, auto) -> TCatalogTable { UNIT_FAIL("unexpected catalog call"); return {}; }, settings);
         UNIT_ASSERT(result.UsesLegacy() && !result.Unsupported);
