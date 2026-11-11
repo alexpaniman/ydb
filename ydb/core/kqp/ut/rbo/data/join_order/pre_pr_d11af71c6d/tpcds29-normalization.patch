@@ -1,0 +1,11 @@
+--- original.sql
++++ normalized.sql
+@@ -45,7 +45,7 @@
+     AND sr_customer_sk == cs_bill_customer_sk
+     AND sr_item_sk == cs_item_sk
+     AND cs_sold_date_sk == d3.d_date_sk
+-    AND d3.d_year IN (1999, 1999 + 1, 1999 + 2)
++    AND d3.d_year IN (1999, 2000, 2001)
+ GROUP BY
+     i_item_id,
+     i_item_desc,

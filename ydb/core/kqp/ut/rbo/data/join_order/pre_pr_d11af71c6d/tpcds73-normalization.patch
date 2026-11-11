@@ -1,0 +1,11 @@
+--- original.sql
++++ normalized.sql
+@@ -43,7 +43,7 @@
+             )
+             ELSE NULL
+         END > 1
+-        AND date_dim.d_year IN (1998, 1998 + 1, 1998 + 2)
++        AND date_dim.d_year IN (1998, 1999, 2000)
+         AND store.s_county IN (
+             'Williamson County', 'Williamson County',
+             'Williamson County', 'Williamson County'
