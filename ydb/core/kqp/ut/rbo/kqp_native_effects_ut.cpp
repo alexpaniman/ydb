@@ -174,7 +174,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
         auto query = CompileNativeToRbo(R"(
             DECLARE $a AS Uint64; DECLARE $b AS Uint64;
             UPDATE t SET value = value + 1 WHERE id IN [$a, $b];
-        )", [](std::string_view, TSourcePosition) {
+        )", [](const TTableAddress&, TSourcePosition) {
             return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                 TWriteSchema{{"id"}, {}, false}}, TRboTable{"/Root/t", "1:2", "", "3"}};
         }, fixture.ExprCtx);
@@ -210,7 +210,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
             auto query = CompileNativeToRbo(R"(
                 UPDATE t SET value = value + 1 WHERE id = 1ul RETURNING value, id;
                 UPDATE t ON (id, value) VALUES (2ul, 20) RETURNING id, value;
-            )", [indexed](std::string_view, TSourcePosition) {
+            )", [indexed](const TTableAddress&, TSourcePosition) {
                 return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                     TWriteSchema{{"id"}, {}, indexed}}, TRboTable{"/Root/t", "1:2", "", "3"}};
             }, fixture.ExprCtx, {}, {}, fixture.Config.Get());
@@ -290,7 +290,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
         const auto types = fixture.ExprCtx.TypeNodes.size();
         auto query = CompileNativeToRbo(R"(
             INSERT OR REVERT INTO t (id, value) VALUES (NULL, NULL), (1ul, 'same') RETURNING value, id;
-        )", [](std::string_view, TSourcePosition) {
+        )", [](const TTableAddress&, TSourcePosition) {
             TNativeTable table{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::String, true}}},
                 TWriteSchema{{"id"}, {}, UniqueIndex}}, TRboTable{"/Root/t", "1:2", "", "3"}};
             if constexpr (UniqueIndex) {
@@ -340,7 +340,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
             SELECT id FROM t;
             UPDATE t SET value = value + 1 WHERE id = 2ul;
             DELETE FROM t ON (id) VALUES (3ul) RETURNING id;
-        )", [](std::string_view, TSourcePosition) {
+        )", [](const TTableAddress&, TSourcePosition) {
             return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                 TWriteSchema{{"id"}, {}, true}}, TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
         }, fixture.ExprCtx);

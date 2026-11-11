@@ -40,7 +40,8 @@ void CheckClickBench(ui32 queryId, bool columnStore, const TVector<TString>& out
     const auto types = f.ExprCtx.TypeNodes.size();
     TIntrusivePtr<TOpRoot> root;
     {
-        auto query = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), [&](std::string_view path, auto) {
+        auto query = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), [&](const NFrontend::TTableAddress& address, auto) {
+            const std::string_view path = address.Name;
             UNIT_ASSERT_VALUES_EQUAL(path, metadata.Name);
             return TNativeTable{metadata, TRboTable{"/Root/hits", "1:1", "", "1"}, storage};
         }, f.ExprCtx);

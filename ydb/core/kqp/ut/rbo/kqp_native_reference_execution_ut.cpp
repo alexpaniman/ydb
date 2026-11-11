@@ -140,6 +140,56 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRuntime) {
         CompareYson(FormatResultSetYson(next.GetResultSet(0)), "[[2]]");
     }
 
+    Y_UNIT_TEST(QualifiedCatalogIdentitySurvivesNativeExecution) {
+        NKikimrConfig::TAppConfig app;
+        auto* config = app.MutableTableServiceConfig();
+        config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        config->SetEnableNewRBO(true);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetEnableFallbackOnMultipleStatements(false);
+        config->SetEnableNewRBOPhysicalStagePeephole(false);
+        TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+        auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto schema = tableSession.ExecuteSchemeQuery(
+            "CREATE TABLE `/Root/ClusterNames` (id Int64 NOT NULL, value String, PRIMARY KEY(id));"
+            "CREATE TABLE `/Root/$q` (id Int64 NOT NULL, PRIMARY KEY(id));").GetValueSync();
+        UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto execute = [&](const TString& sql) {
+            auto result = session.ExecuteQuery(sql, NQuery::TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+            return result;
+        };
+        // Public KQP sessions use the configured cluster "db". Qualified and
+        // unqualified writes/reads must share catalog and effect identities.
+        const auto result = execute(
+            "UPSERT INTO db.`/Root/ClusterNames` (id, value) VALUES (1l, 'first');"
+            "UPDATE `/Root/ClusterNames` SET value = 'second' WHERE id = 1l;"
+            "SELECT id, value FROM db.`/Root/ClusterNames`;"
+            "SELECT id, value FROM `/Root/ClusterNames`;");
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 2);
+        for (size_t i = 0; i < 2; ++i)
+            CompareYson(FormatResultSetYson(result.GetResultSet(i)), R"([[1;["second"]]])");
+        execute("UPSERT INTO db.`/Root/$q` (id) VALUES (7l);");
+        const auto quoted = execute(
+            "PRAGMA TablePathPrefix='/Root'; $q = SELECT 99l AS id;"
+            "SELECT id FROM db.`$q`; SELECT id FROM $q;");
+        UNIT_ASSERT_VALUES_EQUAL(quoted.GetResultSets().size(), 2);
+        CompareYson(FormatResultSetYson(quoted.GetResultSet(0)), "[[7]]");
+        CompareYson(FormatResultSetYson(quoted.GetResultSet(1)), "[[99]]");
+        for (const auto* sql : {
+                "SELECT id FROM remote.`/Root/ClusterNames`;",
+                "SELECT id FROM db.`/Root/absent`; SELECT id FROM remote.`/Root/ClusterNames`;"}) {
+            const auto rejected = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(!rejected.IsSuccess(), sql);
+            UNIT_ASSERT_STRING_CONTAINS(rejected.GetIssues().ToString(), "requires the configured cluster");
+            UNIT_ASSERT(rejected.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+        }
+        const auto next = execute("SELECT id FROM db.`/Root/ClusterNames`;");
+        CompareYson(FormatResultSetYson(next.GetResultSet(0)), "[[1]]");
+    }
+
     Y_UNIT_TEST(DeclaredParametersAndNativeWritesPreserveRowsAndIndexes) {
         TString groupedBaseline;
         for (const bool enable : {false, true}) {

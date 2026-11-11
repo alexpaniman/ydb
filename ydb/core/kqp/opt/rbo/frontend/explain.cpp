@@ -27,8 +27,15 @@ std::string Explain(const TBoundProgram& program) {
         const auto& relation = program.Relations[i];
         AppendInteger(out, i);
         out += ": "; out += names[static_cast<unsigned>(relation.Kind)];
-        if (!relation.Table.empty()) { out += ' '; out += relation.Table; }
+        if (!relation.Table.Name.empty()) {
+            out += ' ';
+            if (!relation.Table.Cluster.empty()) { out += relation.Table.Cluster; out += ':'; }
+            out += relation.Table.Name;
+        }
+        if (!relation.ParameterName.empty()) { out += ' '; out += relation.ParameterName; }
         if (relation.Index) { out += " view="; out += *relation.Index; }
+        if (relation.LeftAny) out += " left-any";
+        if (relation.RightAny) out += " right-any";
         if (!relation.Alias.empty()) { out += " alias="; out += relation.Alias; }
         out += " inputs=["; AppendIds(out, relation.Inputs);
         out += "] columns=["; AppendIds(out, relation.Columns); out += ']';

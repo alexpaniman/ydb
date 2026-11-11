@@ -19,7 +19,8 @@ struct TFixture {
         Catalog.emplace("/Root/u", TCatalogTable{"/Root/u", {{"id", ParseType("Int64")}, {"other", ParseType("Int64?")}}});
     }
     void Ok(std::string_view sql) {
-        auto result = CompileNative(sql, [&](std::string_view name, TSourcePosition pos) {
+        auto result = CompileNative(sql, [&](const TTableAddress& address, TSourcePosition pos) {
+            const std::string_view name = address.Name;
             Lookups.emplace_back(name);
             const auto found = Catalog.find(std::string(name));
             if (found == Catalog.end()) throw TFrontendError(pos, "unknown table: " + std::string(name));
@@ -41,6 +42,65 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(SelfJoinHasDistinctColumnBindings) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            // Preserve the reference's exact ANY query. Binding keeps the
+            // modifiers; backend admission is tested at the RBO handoff.
+            f.Ok("SELECT l.id, r.id AS rid FROM ANY t AS l JOIN ANY t AS r ON l.id = r.id;");
+            const auto reads = f.Find(ERelation::Read), joins = f.Find(ERelation::Join);
+            UNIT_ASSERT_VALUES_EQUAL(reads.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(joins.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(f.Lookups.size(), 1);
+            UNIT_ASSERT(reads[0]->Table == reads[1]->Table);
+            const auto& join = *joins[0];
+            UNIT_ASSERT(join.LeftAny && join.RightAny);
+            const auto& outputs = f.Program.Results.at(0).Columns;
+            UNIT_ASSERT_VALUES_EQUAL(outputs.size(), 2);
+            const auto left = outputs[0].Column, right = outputs[1].Column;
+            UNIT_ASSERT(left != right);
+            const auto& lhs = f.Program.Columns.at(left);
+            const auto& rhs = f.Program.Columns.at(right);
+            UNIT_ASSERT_VALUES_EQUAL(lhs.Name, "id");
+            UNIT_ASSERT_VALUES_EQUAL(rhs.Name, "id");
+            UNIT_ASSERT_VALUES_EQUAL(lhs.Qualifier, "l");
+            UNIT_ASSERT_VALUES_EQUAL(rhs.Qualifier, "r");
+            UNIT_ASSERT(lhs.Type == rhs.Type);
+            UNIT_ASSERT(std::find(reads[0]->Columns.begin(), reads[0]->Columns.end(), left) != reads[0]->Columns.end());
+            UNIT_ASSERT(std::find(reads[1]->Columns.begin(), reads[1]->Columns.end(), right) != reads[1]->Columns.end());
+            const auto& arena = f.Program.Expressions;
+            const auto& on = arena[*join.Predicate];
+            UNIT_ASSERT(on.Op == EOpcode::Equal);
+            UNIT_ASSERT_VALUES_EQUAL(arena[on.Arguments[0]].ColumnId, left);
+            UNIT_ASSERT_VALUES_EQUAL(arena[on.Arguments[1]].ColumnId, right);
+        }
+    }
+
+    Y_UNIT_TEST(AnyBindingFlagsStayOnTheirJoinOperands) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            for (const bool leftAny : {false, true}) for (const bool rightAny : {false, true}) {
+                TFixture f; f.Settings.Parser = parser;
+                f.Ok(std::string("SELECT l.id, r.id AS rid FROM ") + (leftAny ? "ANY " : "") + "t AS l LEFT JOIN "
+                    + (rightAny ? "ANY " : "") + "t AS r ON l.id = r.id;");
+                const auto joins = f.Find(ERelation::Join);
+                UNIT_ASSERT_VALUES_EQUAL(joins.size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(joins[0]->LeftAny, leftAny);
+                UNIT_ASSERT_VALUES_EQUAL(joins[0]->RightAny, rightAny);
+                UNIT_ASSERT(f.Program.Results[0].Columns[0].Type == TType{ETypeKind::Int64});
+                UNIT_ASSERT(f.Program.Results[0].Columns[1].Type == (TType{ETypeKind::Int64, true}));
+            }
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT l.id FROM ANY t AS l JOIN ANY "
+                "(SELECT i.id AS id FROM t AS i JOIN u AS j ON i.id = j.id) AS r ON l.id = r.id "
+                "JOIN t AS s ON r.id = s.id;");
+            const auto joins = f.Find(ERelation::Join);
+            UNIT_ASSERT_VALUES_EQUAL(joins.size(), 3);
+            UNIT_ASSERT(!joins[0]->LeftAny && !joins[0]->RightAny);
+            UNIT_ASSERT(joins[1]->LeftAny && joins[1]->RightAny);
+            UNIT_ASSERT(!joins[2]->LeftAny && !joins[2]->RightAny);
+        }
+    }
+
     Y_UNIT_TEST(FunctionsAndWindowsResolveTheirArguments) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;
@@ -89,7 +149,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
                 UNIT_ASSERT_EXCEPTION(unsupported.Ok(sql), TUnsupportedFeature);
                 UNIT_ASSERT(unsupported.Program.Results.empty());
                 unsupported.Settings.Mode = ECompilerMode::Auto;
-                const auto result = CompileNative(sql, [&](std::string_view, TSourcePosition) {
+                const auto result = CompileNative(sql, [&](const TTableAddress&, TSourcePosition) {
                     return unsupported.Catalog.at("/Root/t");
                 }, unsupported.Settings);
                 UNIT_ASSERT(result.UsesLegacy());
@@ -110,7 +170,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
             const auto parsed = ParseNative("--!ansi_lexer\nWITH \"c\" AS (SELECT * FROM \"t\") SELECT * FROM \"c\";", f.Settings);
             const auto tables = CollectTables(parsed, f.Settings.Binding);
             UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
-            UNIT_ASSERT_VALUES_EQUAL(tables.front().Name, "/Root/t");
+            UNIT_ASSERT_VALUES_EQUAL(tables.front().Address.Name, "/Root/t");
             // Native admission may reject a dynamic pragma while parsing;
             // neither parsing nor discovery returns a partial table list.
             UNIT_ASSERT_EXCEPTION(CollectTables(ParseNative(
@@ -194,11 +254,11 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         TFixture f;
         const auto tables = CollectTables(ParseNative(sql, f.Settings), f.Settings.Binding);
         UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
-        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "/Root/t");
-        UNIT_ASSERT_VALUES_EQUAL(tables[1].Name, "/Root/u");
+        UNIT_ASSERT_VALUES_EQUAL(tables[0].Address.Name, "/Root/t");
+        UNIT_ASSERT_VALUES_EQUAL(tables[1].Address.Name, "/Root/u");
         f.Ok(sql);
         for (const auto& lookup : f.Lookups)
-            UNIT_ASSERT(std::any_of(tables.begin(), tables.end(), [&](const auto& table) { return table.Name == lookup; }));
+            UNIT_ASSERT(std::any_of(tables.begin(), tables.end(), [&](const auto& table) { return table.Address.Name == lookup; }));
     }
 
     Y_UNIT_TEST(SetOrderingUsesCompoundOutputScope) {
@@ -229,7 +289,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         f.Ok("SELECT t.id, value FROM t WHERE id > $min ORDER BY t.id;");
         UNIT_ASSERT_VALUES_EQUAL(f.Lookups.size(), 1); UNIT_ASSERT_VALUES_EQUAL(f.Lookups[0], "/Root/t");
         const auto& read = *f.Find(ERelation::Read).at(0);
-        UNIT_ASSERT_VALUES_EQUAL(read.Table, "/Root/t");
+        UNIT_ASSERT_VALUES_EQUAL(read.Table.Name, "/Root/t");
         UNIT_ASSERT_VALUES_EQUAL(f.Program.Results[0].Columns[0].Column, read.Columns[0]);
         UNIT_ASSERT(f.Program.Columns[read.Columns[0]].Type == ParseType("Int64"));
     }
@@ -304,7 +364,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         UNIT_ASSERT_VALUES_EQUAL(reads.size(), 3);
         UNIT_ASSERT_VALUES_EQUAL(f.Program.Results.size(), 3);
         for (std::size_t i = 0; i < reads.size(); ++i) {
-            UNIT_ASSERT_VALUES_EQUAL(reads[i]->Table, i == 1 ? "/Other/t" : "/Root/t");
+            UNIT_ASSERT(reads[i]->Table == (TTableAddress{"", i == 1 ? "/Other/t" : "/Root/t"}));
             const auto& result = f.Program.Results[i].Columns.at(0);
             UNIT_ASSERT_VALUES_EQUAL(result.Column, reads[i]->Columns.at(0));
             UNIT_ASSERT_VALUES_EQUAL(result.Name, i == 1 ? "different" : "id");

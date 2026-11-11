@@ -127,7 +127,7 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
         if (found == materialized.end()) continue;
         auto& binding = found->second;
         TRelation parameter{ERelation::Parameter, program.Relations[i].Position};
-        parameter.Table = binding.Name;
+        parameter.ParameterName = binding.Name;
         std::vector<TDefinition> definitions;
         const bool first = binding.Columns.empty();
         for (const auto& definition : program.Relations[i].Definitions) {
@@ -153,7 +153,7 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
     // Visit each node once; its phase is the earliest phase of its consumers.
     std::vector<std::uint64_t> phases(nodes.size());
     std::vector<bool> visited(nodes.size());
-    std::unordered_map<std::string, std::uint64_t> lastWrite;
+    std::unordered_map<TTableAddress, std::uint64_t, TTableAddressHash> lastWrite;
     std::uint64_t currentPhase = 0;
     bool currentEffects = false;
     const auto emit = [&](TQueryResult result, std::uint64_t minimum, std::optional<std::string> name) {

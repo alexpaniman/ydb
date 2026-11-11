@@ -1494,6 +1494,7 @@ private:
             F::TCompilerSettings options;
             options.Binding.AnsiIn = queryType == EKikimrQueryType::Query;
             options.Binding.AnsiCurrentRow = queryType == EKikimrQueryType::Query;
+            options.Binding.DefaultCluster = std::string(Cluster);
             options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
             const auto scalarParameterType = [](const auto& supplied) {
                 const auto* item = &supplied;
@@ -1534,12 +1535,17 @@ private:
                 return F::DiscoverNative(std::move(syntax), std::move(options.Binding));
             }();
             const auto requests = discovery.Tables();
+            // Validate the complete discovery result before starting any I/O.
+            // RBO storage metadata belongs to this host's execution cluster.
+            for (const auto& request : requests) if (request.Address.Cluster != std::string_view(Cluster.data(), Cluster.size()))
+                throw F::TUnsupportedFeature(F::EFeature::Backend, request.Position,
+                    "native execution requires the configured cluster");
             TVector<TFuture<IKikimrGateway::TTableMetadataResult>> loads;
             for (const auto& request : requests) {
                 IKikimrGateway::TLoadTableMetadataSettings loadSettings;
                 loadSettings.WithTableStats(true).WithAuthInfo(true)
                     .WithPrivateTables(settings.IsInternalCall.GetOrElse(false)).WithExternalDatasources(true);
-                loads.push_back(Gateway->LoadTableMetadata(Cluster, TString(request.Name), loadSettings));
+                loads.push_back(Gateway->LoadTableMetadata(Cluster, TString(request.Address.Name), loadSettings));
             }
             auto ready = WaitAll(loads).Apply([](const TFuture<void>& future) {
                 future.GetValue();
@@ -1553,25 +1559,25 @@ private:
                 return CheckedProcessQuery(ctx, [&](TExprContext&) -> IAsyncQueryResultPtr {
                     try {
                         const auto requests = discovery.Tables();
-                        std::unordered_map<std::string, TKikimrTableMetadataPtr> metadata;
+                        std::unordered_map<F::TTableAddress, TKikimrTableMetadataPtr, F::TTableAddressHash> metadata;
                         for (std::size_t i = 0; i < loads.size(); ++i) {
                             const auto& loaded = loads[i].GetValue();
                             loaded.ReportIssues(ctx.IssueManager);
                             if (!loaded.Success()) return MakeKikimrResultHolder(ResultFromErrors<TQueryResult>(ctx.IssueManager.GetIssues()));
                             const auto& meta = loaded.Metadata;
                             YQL_ENSURE(meta);
-                            if (!meta->DoesExist) throw F::TFrontendError(requests[i].Position, "table does not exist: " + requests[i].Name);
+                            if (!meta->DoesExist) throw F::TFrontendError(requests[i].Position, "table does not exist: " + requests[i].Address.Name);
                             if ((meta->Kind != EKikimrTableKind::Datashard && meta->Kind != EKikimrTableKind::Olap &&
                                  meta->Kind != EKikimrTableKind::SysView) || meta->Temporary)
                                 throw F::TUnsupportedFeature(F::EFeature::Backend, requests[i].Position, "native profile supports persistent tables and system views");
-                            metadata.emplace(requests[i].Name, meta);
-                            metadata.emplace(std::string(meta->Name), meta);
+                            metadata.emplace(requests[i].Address, meta);
+                            metadata.emplace(F::TTableAddress{requests[i].Address.Cluster, std::string(meta->Name)}, meta);
                         }
                         // A resolved table may be used under several aliases and again
                         // during operator translation. Decode its native schema once.
                         std::unordered_map<const TKikimrTableMetadata*, F::TCatalogSnapshot> nativeSchemas;
-                        auto schema = [&](std::string_view path, F::TSourcePosition pos) {
-                            const auto& meta = metadata.at(std::string(path));
+                        auto schema = [&](const F::TTableAddress& address, F::TSourcePosition pos) {
+                            const auto& meta = metadata.at(address);
                             if (const auto found = nativeSchemas.find(meta.Get()); found != nativeSchemas.end()) return found->second;
                             F::TCatalogTable table{std::string(meta->Name), {}};
                             table.Columns.reserve(meta->Columns.size());
@@ -1623,9 +1629,9 @@ private:
                         const auto sqlVersion = SetupQueryParameters(settings, queryType);
                         auto native = [&] {
                             TCompileTraceScope phase(settings.CompileTrace, "Native operator translation");
-                            return ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
-                                const auto& meta = metadata.at(std::string(path));
-                                TNativeTable table{schema(path, pos), MakeRboTableIdentity(*meta),
+                            return ConvertNativeToRbo(std::move(program), [&](const F::TTableAddress& address, F::TSourcePosition pos) {
+                                const auto& meta = metadata.at(address);
+                                TNativeTable table{schema(address, pos), MakeRboTableIdentity(*meta),
                                     meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
                                 if (!meta->Indexes.empty()) table.ResolveIndex = [meta](std::string_view name, F::TSourcePosition pos) {
                                     const auto [impl, index] = meta->GetIndex(name);
@@ -1652,8 +1658,8 @@ private:
                         native.CompileTrace = settings.CompileTrace;
                         // Register metadata for statistics and storage identities.
                         // Runtime type annotations are constructed by emission.
-                        for (const auto& [name, meta] : metadata) {
-                            if (name != std::string(meta->Name)) continue;
+                        for (const auto& [address, meta] : metadata) {
+                            if (address.Name != std::string(meta->Name)) continue;
                             auto& desc = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), meta->Name);
                             desc.Metadata = meta;
                             for (auto impl : meta->ImplTables) while (impl) {

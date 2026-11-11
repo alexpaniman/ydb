@@ -6,7 +6,8 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 namespace {
-TCatalogTable WriteCatalog(std::string_view name, TSourcePosition) {
+TCatalogTable WriteCatalog(const TTableAddress& address, TSourcePosition) {
+    const std::string_view name = address.Name;
     return {std::string(name), {{"id", {ETypeKind::Uint64}}, {"value", {ETypeKind::Int32, true}},
         {"name", {ETypeKind::Utf8, true}}}, TWriteSchema{{"id"}, {}, false}};
 }
@@ -70,8 +71,8 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
             UNIT_ASSERT_VALUES_EQUAL(effect.Columns.size(), 3);
             UNIT_ASSERT_VALUES_EQUAL(effect.Returning.at(0).second, "name");
             UNIT_ASSERT_VALUES_EQUAL(effect.Returning.at(1).second, "id");
-            auto defaults = [](std::string_view name, TSourcePosition pos) {
-                auto table = WriteCatalog(name, pos);
+            auto defaults = [](const TTableAddress& address, TSourcePosition pos) {
+                auto table = WriteCatalog(address, pos);
                 table.WriteSchema->Defaults.emplace_back("value", EColumnDefault::Literal);
                 return table;
             };
@@ -205,7 +206,7 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
         )");
         const auto tables = CollectTables(syntax);
         std::vector<std::string> names;
-        for (const auto& table : tables) names.push_back(table.Name);
+        for (const auto& table : tables) names.push_back(table.Address.Name);
         UNIT_ASSERT(names == (std::vector<std::string>{"/Root/target", "/Root/source", "/Root/ids", "/Root/nested"}));
     }
 

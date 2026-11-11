@@ -11,7 +11,7 @@ TCompiledProgram Compile(std::string_view sql, EParser parser = EParser::Fast) {
     TCompilerSettings settings;
     settings.Parser = parser;
     settings.Mode = ECompilerMode::Auto;
-    auto result = CompileNative(sql, [](std::string_view, TSourcePosition) -> TCatalogTable {
+    auto result = CompileNative(sql, [](const TTableAddress&, TSourcePosition) -> TCatalogTable {
         throw TFrontendError({}, "literal compilation must not request a catalog");
     }, settings);
     UNIT_ASSERT_C(result.Program, sql);

@@ -17,7 +17,7 @@
 
 namespace NKikimr::NKqp {
 namespace {
-TNativeTable NoTables(std::string_view, NFrontend::TSourcePosition pos) {
+TNativeTable NoTables(const NFrontend::TTableAddress&, NFrontend::TSourcePosition pos) {
     throw NFrontend::TFrontendError(pos, "unexpected table lookup");
 }
 }

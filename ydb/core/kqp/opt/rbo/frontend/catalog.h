@@ -2,6 +2,7 @@
 
 #include "expression.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -9,6 +10,21 @@
 #include <vector>
 
 namespace NKikimr::NKqp::NFrontend {
+
+// SQL catalog identity. Cluster and decoded path remain separate throughout
+// discovery and binding; equal paths in different clusters are distinct objects.
+struct TTableAddress {
+    std::string Cluster;
+    std::string Name;
+    bool operator==(const TTableAddress&) const = default;
+};
+
+struct TTableAddressHash {
+    std::size_t operator()(const TTableAddress& address) const {
+        const auto cluster = std::hash<std::string>{}(address.Cluster);
+        return cluster ^ (std::hash<std::string>{}(address.Name) + 0x9e3779b9 + (cluster << 6) + (cluster >> 2));
+    }
+};
 
 struct TCatalogColumn {
     std::string Name;

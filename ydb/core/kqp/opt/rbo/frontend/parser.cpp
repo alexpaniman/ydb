@@ -496,6 +496,11 @@ private:
         if (into) { if (result.Batch) Fail("BATCH requires UPDATE or DELETE"); Expect("INTO"); }
         result.Target.Position = Token().Position;
         result.Target.Name = Identifier();
+        if (Take(".")) {
+            result.Target.Cluster = std::move(result.Target.Name);
+            if (result.Target.Cluster.empty()) throw TFrontendError(result.Target.Position, "empty cluster name");
+            result.Target.Name = Identifier();
+        }
         if (into || Take("ON")) {
             if (Take("(")) {
                 do { result.Columns.push_back(Identifier()); } while (Take(","));
@@ -553,13 +558,17 @@ private:
         result.Any = Take("ANY");
         if (Take("(")) { result.Query = Select(); Expect(")"); }
         else if (Is("AS_TABLE") && Is("(", 1)) {
-            ++Index; Expect("("); result.Name = "$" + Variable(); Expect(")"); result.ParameterTable = true;
+            ++Index; Expect("("); result.Name = "$" + Variable(); Expect(")"); result.ParameterTable = true; result.NameIsBinding = true;
         }
         else {
-            if (Take("$")) result.Name = "$" + Identifier();
+            if (Take("$")) { result.Name = "$" + Identifier(); result.NameIsBinding = true; }
             else {
                 result.Name = Identifier(TableIdentifier);
-                if (Is(".")) Fail("cluster-qualified source requires grammar parser");
+                if (Take(".")) {
+                    result.Cluster = std::move(result.Name);
+                    if (result.Cluster.empty()) throw TFrontendError(result.Position, "empty cluster name");
+                    result.Name = Identifier(TableIdentifier);
+                }
             }
             if (Take("VIEW")) {
                 if (Is("PRIMARY") && Is("KEY", 1))

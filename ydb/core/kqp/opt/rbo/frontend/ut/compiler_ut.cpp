@@ -15,7 +15,8 @@ namespace {
 struct TKeyword { std::string_view Word; unsigned Identifiers; };
 #include <ydb/core/kqp/opt/rbo/frontend/grammar_keywords.inc>
 
-TCatalogTable Catalog(std::string_view name, TSourcePosition) {
+TCatalogTable Catalog(const TTableAddress& address, TSourcePosition) {
+    const std::string_view name = address.Name;
     return {std::string(name), {{"id", {ETypeKind::Uint64}}, {"value", {ETypeKind::Int32, true}}}};
 }
 
@@ -61,7 +62,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             const auto discovery = ParseNative("SELECT SUM(value) FILTER(WHERE EXISTS(SELECT id FROM u)) FROM t", settings);
             const auto tables = CollectTables(discovery);
             UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
-            UNIT_ASSERT(std::any_of(tables.begin(), tables.end(), [](const auto& table) { return table.Name == "u"; }));
+            UNIT_ASSERT(std::any_of(tables.begin(), tables.end(), [](const auto& table) { return table.Address.Name == "u"; }));
         }
     }
 
@@ -513,7 +514,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 DECLARE $boundary AS Timestamp64;
                 SELECT CAST(ts AS Timestamp64) AS ts, CAST(ts AS Datetime64) AS seconds,
                     CAST(ts AS Int64) AS ticks FROM t WHERE ts <= $boundary;
-            )", [](std::string_view name, TSourcePosition) {
+            )", [](const TTableAddress& address, TSourcePosition) {
+                const std::string_view name = address.Name;
                 return TCatalogTable{std::string(name), {{"ts", {ETypeKind::Timestamp64}}}};
             }, settings);
             const auto& columns = compiled.Program->Get().Results.at(0).Columns;
@@ -613,7 +615,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 UNIT_ASSERT_VALUES_EQUAL(fields[0].Name, "id");
                 UNIT_ASSERT(fields[1].Type == (TType{ETypeKind::String, true}));
                 UNIT_ASSERT(program.Relations.front().Kind == ERelation::Parameter);
-                UNIT_ASSERT_VALUES_EQUAL(program.Relations.front().Table, "p");
+                UNIT_ASSERT_VALUES_EQUAL(program.Relations.front().ParameterName, "p");
                 UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Int32}));
                 UNIT_ASSERT(program.Results[0].Columns[1].Type == (TType{ETypeKind::String, true}));
                 for (const auto& node : program.Expressions.Nodes()) UNIT_ASSERT(node.Op != EOpcode::Parameter);
@@ -629,7 +631,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             const auto syntax = ParseNative("DECLARE $p AS List<Struct<id:Uint64>>; SELECT a.id FROM AS_TABLE($p) a JOIN t b ON a.id=b.id", settings);
             const auto tables = CollectTables(syntax);
             UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
-            UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "t");
+            UNIT_ASSERT_VALUES_EQUAL(tables[0].Address.Name, "t");
         }
     }
 
@@ -681,7 +683,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     }
 
     Y_UNIT_TEST(JsonValuesHaveAnExplicitNativeExecutionProfile) {
-        const auto catalog = [](std::string_view name, TSourcePosition) {
+        const auto catalog = [](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             return TCatalogTable{std::string(name), {{"j", {ETypeKind::Json, true}}, {"d", {ETypeKind::JsonDocument}}}};
         };
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
@@ -824,7 +827,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             for (const auto* alias : {"STDDEV", "STDDEV_SAMPLE", "stddev_samp", "stddev_s", "StdDevSample", "StdDevSamp", "StdDevS"}) {
                 for (const auto* type : {"Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double"}) {
                     for (const bool nullable : {false, true}) for (const bool grouped : {false, true}) {
-                        const auto catalog = [&](std::string_view name, TSourcePosition) {
+                        const auto catalog = [&](const TTableAddress& address, TSourcePosition) {
+                            const std::string_view name = address.Name;
                             auto valueType = ParseType(type); valueType.OptionalDepth = nullable;
                             return TCatalogTable{std::string(name), {{"k", {ETypeKind::Int32}}, {"v", valueType}}};
                         };
@@ -854,7 +858,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     }
 
     Y_UNIT_TEST(JoinStarsRequireUniqueOutputNames) {
-        const auto catalog = [](std::string_view name, TSourcePosition) {
+        const auto catalog = [](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             const std::string prefix(name);
             return TCatalogTable{prefix, {{prefix + "id", {ETypeKind::Int32}},
                 {prefix + "value", {ETypeKind::Utf8, true}}}};
@@ -1470,8 +1475,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         const auto syntax = ParseNative("$unused = SELECT * FROM unused; $q = SELECT * FROM a; PRAGMA TablePathPrefix='/Root'; WITH c AS (SELECT * FROM b) SELECT * FROM $q CROSS JOIN c; SELECT * FROM a");
         const auto tables = CollectTables(syntax);
         UNIT_ASSERT_VALUES_EQUAL(tables.size(), 3);
-        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
-        UNIT_ASSERT_VALUES_EQUAL(tables[1].Name, "/Root/b");
-        UNIT_ASSERT_VALUES_EQUAL(tables[2].Name, "/Root/a");
+        UNIT_ASSERT_VALUES_EQUAL(tables[0].Address.Name, "a");
+        UNIT_ASSERT_VALUES_EQUAL(tables[1].Address.Name, "/Root/b");
+        UNIT_ASSERT_VALUES_EQUAL(tables[2].Address.Name, "/Root/a");
     }
 }

@@ -2,6 +2,7 @@ UNITTEST()
 
 SRCS(
     struct_sql_ut.cpp
+    cluster_names_ut.cpp
     struct_ut.cpp
     external_bindings_ut.cpp
     document_ut.cpp

@@ -91,7 +91,8 @@ Y_UNIT_TEST_SUITE(KqpNativeJoinUsingRuntime) {
         const auto types = fixture.ExprCtx.TypeNodes.size();
         const auto query = CompileNativeToRbo(
             "SELECT k, l.k AS lk, r.k AS rk FROM L AS l FULL JOIN R AS r USING(k)",
-            [](std::string_view name, TSourcePosition) {
+            [](const TTableAddress& address, TSourcePosition) {
+                const std::string_view name = address.Name;
                 const auto path = TString(name);
                 return TNativeTable{NFrontend::TCatalogTable{std::string(name), {{"k", {name == "L" ? ETypeKind::Int32 : ETypeKind::Int64, true}}}},
                     TRboTable{path, "1:2", "", "3"}, NYql::EStorageType::RowStorage};

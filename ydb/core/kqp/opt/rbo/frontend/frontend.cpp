@@ -229,7 +229,7 @@ public:
         const auto it = CteSources.find(&source);
         return it == CteSources.end() ? nullptr : it->second;
     }
-    const std::string& PhysicalPath(const TSource& source) const { return PhysicalPaths.at(&source); }
+    const TTableAddress& PhysicalAddress(const TSource& source) const { return PhysicalAddresses.at(&source); }
     const TSyntaxWindow& Window(const TSyntaxWindow& syntax) const {
         return syntax.ReferenceOnly ? *Windows.at(&syntax) : syntax;
     }
@@ -243,7 +243,7 @@ public:
     std::shared_ptr<TSelect> Query(const TSource& source) const {
         if (source.ParameterTable) return {};
         if (source.Query) return source.Query;
-        if (!source.Name.starts_with('$')) {
+        if (!source.NameIsBinding) {
             const auto* cte = SourceCte(source);
             return cte ? cte->Query : nullptr;
         }
@@ -352,22 +352,24 @@ private:
         }
     }
     void Source(const TSource& source, bool physical = false) {
-        if (source.Any) throw TUnsupportedFeature(EFeature::Backend, source.Position, "ANY joins require native duplicate-selection semantics");
         if (source.Options && (!source.Options->Hints.empty() || source.Options->Sampling))
             throw TUnsupportedFeature(EFeature::Backend, source.Position, "source hints and sampling require native execution support");
         if (!physical) {
             if (source.Query) { Select(*source.Query); return; }
-            if (source.Name.starts_with('$')) { Sources.emplace(&source, Resolve(source.Name.substr(1))); return; }
-            for (auto scope = CteScopes.rbegin(); scope != CteScopes.rend(); ++scope) {
+            if (source.NameIsBinding) { Sources.emplace(&source, Resolve(source.Name.substr(1))); return; }
+            for (auto scope = CteScopes.rbegin(); source.Cluster.empty() && scope != CteScopes.rend(); ++scope) {
                 if (const auto it = scope->find(source.Name); it != scope->end()) {
                     CteSources.emplace(&source, it->second);
                     return;
                 }
             }
         }
-        auto path = source.Name;
-        if (!Prefix.empty() && !path.starts_with('/')) path = Prefix + (Prefix.ends_with('/') ? "" : "/") + path;
-        PhysicalPaths.emplace(&source, std::move(path));
+        TTableAddress address{source.Cluster.empty() ? Settings.DefaultCluster : source.Cluster, source.Name};
+        const auto configured = Settings.ClusterPrefixes.find(address.Cluster);
+        const auto& prefix = configured == Settings.ClusterPrefixes.end() ? Prefix : configured->second;
+        if (!prefix.empty() && !address.Name.starts_with('/'))
+            address.Name = prefix + (prefix.ends_with('/') ? "" : "/") + address.Name;
+        PhysicalAddresses.emplace(&source, std::move(address));
     }
     void Select(const TSelect& query) {
         if (++Depth > Settings.MaxExpansionDepth) throw TResourceLimitError(query.Position, "binding scope depth limit exceeded");
@@ -428,7 +430,7 @@ private:
     std::string Prefix;
     std::vector<std::unordered_map<std::string, const TCteBinding*>> CteScopes;
     std::unordered_map<const TSource*, const TCteBinding*> CteSources;
-    std::unordered_map<const TSource*, std::string> PhysicalPaths;
+    std::unordered_map<const TSource*, TTableAddress> PhysicalAddresses;
     using TWindowNames = std::unordered_map<std::string_view, const TSyntaxWindow*>;
     const TWindowNames* WindowScope = nullptr;
     std::unordered_map<const TSyntaxWindow*, const TSyntaxWindow*> Windows;
@@ -802,6 +804,7 @@ public:
     {
         for (std::size_t i = 0; i < bindings.ExternalValues().size(); ++i)
             Values[syntax.Statements.size() + i] = bindings.ExternalValues()[i];
+        Program.DefaultCluster = settings.DefaultCluster;
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
         // Structural interning is used by window input/specification sharing.
@@ -1139,7 +1142,7 @@ private:
             const auto name = source.Name.substr(1);
             const auto* fields = Program.Parameters.at(name).Rows();
             if (!fields) throw TFrontendError(source.Position, "AS_TABLE requires a List<Struct<...>> parameter");
-            TRelation input{ERelation::Parameter, source.Position}; input.Table = name;
+            TRelation input{ERelation::Parameter, source.Position}; input.ParameterName = name;
             TScope scope;
             for (const auto& field : *fields) {
                 const auto id = Column(field.Name, source.Alias, field.Type, source.Position);
@@ -1153,7 +1156,7 @@ private:
             if (source.Index) throw TFrontendError(source.Position, "index VIEW requires a persistent table");
             // Named statements keep their declaration scope. A CTE can
             // capture columns only from the query that declared it.
-            auto* queryOuter = source.Name.starts_with('$') ? nullptr : cte ? CteContexts.at(cte) : outer;
+            auto* queryOuter = source.NameIsBinding ? nullptr : cte ? CteContexts.at(cte) : outer;
             const bool reusable = !source.Query && !queryOuter;
             auto result = BindQuery(*query, queryOuter, reusable, source.Position);
             if (cte && !cte->Columns.empty()) {
@@ -1170,7 +1173,7 @@ private:
             for (const auto& column : result.Columns) scope.Add({column.Column, column.Name, source.Alias.empty() ? source.Name : source.Alias, column.Type});
             return {result.Root, std::move(scope)};
         }
-        if (source.Name.starts_with('$')) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
+        if (source.NameIsBinding) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
         return ReadTable(source, ResolveTable(source));
     }
 
@@ -1203,16 +1206,16 @@ private:
     }
 
     const TCatalogSnapshot& ResolveTable(const TSource& source) {
-        const auto& path = Bindings.PhysicalPath(source);
-        if (const auto found = Tables.find(path); found != Tables.end()) return found->second;
-        auto snapshot = Catalog(path, source.Position);
+        const auto& address = Bindings.PhysicalAddress(source);
+        if (const auto found = Tables.find(address); found != Tables.end()) return found->second;
+        auto snapshot = Catalog(address, source.Position);
         snapshot.Validate(source.Position);
-        return Tables.emplace(path, std::move(snapshot)).first->second;
+        return Tables.emplace(address, std::move(snapshot)).first->second;
     }
 
     TBoundSource ReadTable(const TSource& source, const TCatalogSnapshot& snapshot) {
         const auto& table = snapshot.Get();
-        TRelation read{ERelation::Read, source.Position}; read.Table = table.Name;
+        TRelation read{ERelation::Read, source.Position}; read.Table = {Bindings.PhysicalAddress(source).Cluster, table.Name};
         read.Alias = source.Alias.empty() ? source.Name : source.Alias;
         read.Index = source.Index;
         std::string alias = source.Alias;
@@ -1243,7 +1246,7 @@ private:
         const auto& schema = *table.WriteSchema;
         static const TGeneratedValues empty;
         if (schema.GeneratedColumns.empty()) return empty;
-        if (const auto found = Generated.find(table.Name); found != Generated.end()) return found->second;
+        if (const auto found = Generated.find(&table); found != Generated.end()) return found->second;
         std::unordered_set<std::string_view> names;
         for (const auto& column : schema.GeneratedColumns) {
             if (!names.insert(column.Name).second) throw TFrontendError(pos, "duplicate generated column: " + column.Name);
@@ -1269,7 +1272,7 @@ private:
             CheckSize(pos);
             values.emplace_back(column.Name, std::make_shared<const TRowExpression>(std::move(value)));
         }
-        return Generated.emplace(table.Name, std::move(values)).first->second;
+        return Generated.emplace(&table, std::move(values)).first->second;
     }
 
     static void PrepareGeneratedColumns(const TGeneratedValues& generated,
@@ -1426,7 +1429,7 @@ private:
             throw TUnsupportedFeature(EFeature::Statement, pos,
                 "INSERT OR REVERT with defaults or generated columns requires shared row preparation before conflict checks");
         TRelation relation{ERelation::Effect, pos};
-        relation.Table = table.Name;
+        relation.Table = {Bindings.PhysicalAddress(write.Target).Cluster, table.Name};
         relation.Inputs = {Map(input, std::move(definitions), pos)};
         TQueryResult result{NoRelation, {}};
         std::unordered_set<std::string> returned;
@@ -1481,6 +1484,7 @@ private:
         TBoundSource current;
         if (query.Source) current = Source(*query.Source, outer);
         else current.Relation = Relation({ERelation::Unit, query.Position});
+        bool leftAny = query.Source && query.Source->Any;
         for (const auto& join : query.Joins) {
             const bool constrained = join.Predicate != NoSyntax || !join.Using.empty();
             if (join.Kind == EJoinKind::Cross ? constrained : !constrained)
@@ -1519,6 +1523,8 @@ private:
             }
             TRelation relation{ERelation::Join, join.Source.Position}; relation.Inputs = {current.Relation, right.Relation};
             relation.Columns = output.Ids(); relation.Predicate = predicate; relation.JoinKind = join.Kind;
+            relation.LeftAny = leftAny; relation.RightAny = join.Source.Any;
+            leftAny = false;
             const auto root = MergeUsingKeys(Relation(std::move(relation)), output, std::move(usingKeys), join.Kind, join.Source.Position);
             current = {root, std::move(output)};
         }
@@ -2719,14 +2725,14 @@ private:
         return name.Text;
     }
 
-    std::unordered_map<std::string, TGeneratedValues> Generated;
+    std::unordered_map<const TCatalogTable*, TGeneratedValues> Generated;
     std::size_t GeneratedNodes = 0;
     const TParsedQuery& Syntax;
     const TTableResolver& Catalog;
     const TBindSettings& Settings;
     // One catalog snapshot per resolved path; source aliases own their
     // bindings, while repeated sources share the immutable column metadata.
-    std::unordered_map<std::string, TCatalogSnapshot, TStringHash, std::equal_to<>> Tables;
+    std::unordered_map<TTableAddress, TCatalogSnapshot, TTableAddressHash> Tables;
     const TGlobalBindings& Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
@@ -2941,9 +2947,9 @@ private:
         auto query = Bindings.Query(source);
         if (query) {
             NamedQuery(*query, source.Position);
-        } else if (!source.Name.starts_with('$')) {
-            auto path = Bindings.PhysicalPath(source);
-            if (Seen.insert(path).second) Tables.push_back({std::move(path), source.Position});
+        } else if (!source.NameIsBinding) {
+            const auto& address = Bindings.PhysicalAddress(source);
+            if (Seen.insert(address).second) Tables.push_back({address, source.Position});
         }
     }
     void Select(const TSelect& query) {
@@ -2965,7 +2971,7 @@ private:
     const TBindSettings& Settings;
     const TGlobalBindings& Bindings;
     std::unordered_set<const TSelect*> Active;
-    std::unordered_set<std::string> Seen;
+    std::unordered_set<TTableAddress, TTableAddressHash> Seen;
     std::vector<TTableRequest> Tables;
     std::size_t Depth = 0, Nodes = 0;
 };
@@ -3068,7 +3074,7 @@ TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatal
     }
     TBindSettings binding;
     binding.MaxNodes = settings.MaxNodes;
-    const TTableResolver noTables = [](std::string_view, TSourcePosition pos) -> TCatalogTable {
+    const TTableResolver noTables = [](const TTableAddress&, TSourcePosition pos) -> TCatalogTable {
         throw TFrontendError(pos, "row expressions cannot read tables");
     };
     const TGlobalBindings bindings(syntax, binding);

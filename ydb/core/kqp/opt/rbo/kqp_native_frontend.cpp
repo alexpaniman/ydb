@@ -137,36 +137,50 @@ void ApplyPlannerSettings(const std::vector<NFrontend::TPlannerSetting>& setting
 TNativeQuery CompileNativeToRbo(std::string_view sql,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx,
     const NFrontend::TBindSettings& bindSettings, const NFrontend::TParseSettings& parseSettings, NYql::TKikimrConfiguration* config) {
-    std::unordered_map<std::string, TNativeTable> tables;
+    std::unordered_map<NFrontend::TTableAddress, TNativeTable, NFrontend::TTableAddressHash> tables;
     NFrontend::TCompilerSettings settings;
     settings.Binding = bindSettings;
     settings.Parsing = parseSettings;
-    auto compiled = NFrontend::CompileNative(sql, [&](std::string_view name, NFrontend::TSourcePosition pos) {
-        auto it = tables.find(std::string(name));
+    auto discovery = NFrontend::DiscoverNative(NFrontend::ParseNative(sql, settings), bindSettings);
+    for (const auto& request : discovery.Tables()) if (request.Address.Cluster != bindSettings.DefaultCluster)
+        throw NFrontend::TUnsupportedFeature(NFrontend::EFeature::Backend, request.Position,
+            "native execution requires the configured cluster");
+    auto compiled = NFrontend::BindNative(discovery, [&](const NFrontend::TTableAddress& address, NFrontend::TSourcePosition pos) {
+        auto it = tables.find(address);
         if (it == tables.end()) {
-            auto table = resolve(name, pos);
+            auto table = resolve(address, pos);
             if (!table.Table) throw NFrontend::TFrontendError(pos, "table resolver returned no table identity");
             auto schema = table.Schema;
             // The bound relation uses the resolved path, not its source alias.
-            tables.emplace(schema.Get().Name, table);
-            tables.emplace(std::string(name), std::move(table));
+            tables.emplace(NFrontend::TTableAddress{address.Cluster, schema.Get().Name}, table);
+            tables.emplace(address, std::move(table));
             return schema;
         }
         return it->second.Schema;
-    }, settings);
-    return ConvertNativeToRbo(std::move(compiled.Program.value()), [&](std::string_view name, NFrontend::TSourcePosition) {
-        return tables.at(std::string(name));
+    });
+    return ConvertNativeToRbo(std::move(compiled), [&](const NFrontend::TTableAddress& address, NFrontend::TSourcePosition) {
+        return tables.at(address);
     }, ctx, config);
 }
 
 TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx, NYql::TKikimrConfiguration* config) {
+    const auto& bound = compiled.Get();
+    for (const auto& relation : bound.Relations) {
+        if (relation.Kind == NFrontend::ERelation::Join && (relation.LeftAny || relation.RightAny))
+            throw NFrontend::TUnsupportedFeature(NFrontend::EFeature::Backend, relation.Position,
+                "ANY joins require native duplicate-selection semantics");
+        if ((relation.Kind == NFrontend::ERelation::Read || relation.Kind == NFrontend::ERelation::Effect)
+            && relation.Table.Cluster != bound.DefaultCluster)
+            throw NFrontend::TUnsupportedFeature(NFrontend::EFeature::Backend, relation.Position,
+                "native execution requires the configured cluster");
+    }
     auto execution = NFrontend::PrepareExecution(std::move(compiled));
     auto& program = execution.Program;
     TNativeQuery query;
     query.Parameters = std::move(program.Parameters);
     ApplyPlannerSettings(program.PlannerSettings, config);
-    std::unordered_map<std::string, TNativeTable> tables;
+    std::unordered_map<NFrontend::TTableAddress, TNativeTable, NFrontend::TTableAddressHash> tables;
     for (const auto& relation : program.Relations) if ((relation.Kind == NFrontend::ERelation::Read || relation.Kind == NFrontend::ERelation::Effect) && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);
         if (!table.Table) throw NFrontend::TFrontendError(relation.Position, "table resolver returned no table identity");
@@ -186,7 +200,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     auto& roots = query.Roots;
-    std::unordered_map<std::string, std::unordered_map<std::string, TNativeIndex>> indexes;
+    std::unordered_map<NFrontend::TTableAddress, std::unordered_map<std::string, TNativeIndex>, NFrontend::TTableAddressHash> indexes;
     THashMap<TOpRoot*, TVector<TNativeIndexRead>> indexReads;
     for (const auto& executionRoot : execution.Roots) {
         const auto& result = executionRoot.Query;
@@ -252,7 +266,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                 case R::Unit: op = MakeIntrusive<TOpEmptySource>(pos); break;
                 case R::Parameter: {
                     TOpEmptySource::TParameterInput parameter;
-                    parameter.Name = "$" + String(relation.Table);
+                    parameter.Name = "$" + String(relation.ParameterName);
                     for (const auto id : relation.Columns) {
                         const auto& column = program.Columns.at(id);
                         parameter.Fields.Add(id, NFrontend::TCatalogColumn{column.Name, column.Type});

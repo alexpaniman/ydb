@@ -128,9 +128,11 @@ struct TSourceOptions {
 struct TSource {
     TSourcePosition Position;
     std::string Name;
+    std::string Cluster;
     std::string Alias;
     std::shared_ptr<TSelect> Query;
     bool ParameterTable = false;
+    bool NameIsBinding = false;
     bool Any = false;
     std::vector<std::string> ColumnAliases;
     std::optional<std::string> Index;

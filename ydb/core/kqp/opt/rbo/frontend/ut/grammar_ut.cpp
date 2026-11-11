@@ -128,7 +128,8 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
                 "$q = SELECT id FROM t VIEW ByValue; SELECT id FROM $q"}) {
             UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)), sql);
             TCompilerSettings settings; settings.Parser = EParser::Verify;
-            const auto compiled = CompileNative(sql, [](std::string_view name, TSourcePosition) {
+            const auto compiled = CompileNative(sql, [](const TTableAddress& address, TSourcePosition) {
+                const std::string_view name = address.Name;
                 return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}};
             }, settings);
             UNIT_ASSERT(compiled.Program);

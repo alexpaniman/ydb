@@ -38,7 +38,8 @@ Y_UNIT_TEST_SUITE(KqpNativeIndexViews) {
             const auto nodes = f.ExprCtx.NodeAllocationCounter;
             const auto types = f.ExprCtx.TypeNodes.size();
             size_t resolutions = 0;
-            auto query = CompileNativeToRbo(test.Sql, [&](std::string_view name, TSourcePosition) {
+            auto query = CompileNativeToRbo(test.Sql, [&](const TTableAddress& address, TSourcePosition) {
+                const std::string_view name = address.Name;
                 UNIT_ASSERT_VALUES_EQUAL(name, "t");
                 TNativeTable table{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int64, true}}, {"g", {ETypeKind::Int32, true}},
                     {"payload", {ETypeKind::String, true}}}}, TRboTable{"/Root/t", "1:2", "", "3"}};

@@ -85,7 +85,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
                 "SELECT * FROM t WITH COLUMNS = $columns", "SELECT * FROM t WITH WATERMARK = ts - 1"}) {
                 const auto syntax = Ast(sql, grammar);
                 UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
-                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](const TTableAddress&, TSourcePosition) -> TCatalogTable {
                     UNIT_FAIL("unsupported schema semantics reached catalog I/O"); return {};
                 }), TUnsupportedFeature, sql);
             }
@@ -206,7 +206,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
             }
             const auto filtered = Ast("SELECT SUM(x) FILTER (WHERE x > 0) FROM t", grammar);
             UNIT_ASSERT_VALUES_EQUAL(CollectTables(filtered).size(), 1);
-            UNIT_ASSERT(BindNative(filtered, [](std::string_view, TSourcePosition) {
+            UNIT_ASSERT(BindNative(filtered, [](const TTableAddress&, TSourcePosition) {
                 return TCatalogTable{"t", {{"x", {ETypeKind::Int32}}}};
             }).Get().Results[0].Columns[0].Type == (TType{ETypeKind::Int64, true}));
             for (const auto* sql : {"SELECT FIRST_VALUE(x) IGNORE NULLS OVER () FROM t",
@@ -216,7 +216,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
                 "SELECT SUM(x) OVER (w) FROM t WINDOW w AS ()"}) {
                 const auto syntax = Ast(sql, grammar);
                 UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
-                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](const TTableAddress&, TSourcePosition) -> TCatalogTable {
                     UNIT_FAIL("unsupported window semantics reached catalog I/O"); return {};
                 }), TUnsupportedFeature, sql);
             }
@@ -360,12 +360,11 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
 
     Y_UNIT_TEST(SourceModifiersRequireExplicitExecutionAdmission) {
         for (const bool grammar : {false, true}) for (const auto* sql : {
-            "SELECT l.id FROM ANY t AS l JOIN u AS r ON l.id = r.id",
             "SELECT * FROM t WITH infer", "SELECT * FROM t SAMPLE 0.5",
             "EXPLAIN SELECT * FROM t", "EXPLAIN QUERY PLAN SELECT * FROM t"}) {
             const auto syntax = Ast(sql, grammar);
             UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
-            UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+            UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](const TTableAddress&, TSourcePosition) -> TCatalogTable {
                 UNIT_FAIL("unsupported source semantics reached catalog I/O");
                 return {};
             }), TUnsupportedFeature, sql);
@@ -541,9 +540,12 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
             UNIT_ASSERT(!query.OrderBy[1].Descending);
             UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions.at(query.Limit).Text, "10");
             UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions.at(query.Offset).Text, "2");
-            // The reference's cluster qualifier is outside this native catalog
-            // contract. It must be rejected, never stripped from the table name.
-            UNIT_ASSERT_EXCEPTION(Ast("SELECT * FROM plato.`/Root/t`;", grammar), TUnsupportedFeature);
+            // Cluster identity survives parsing; backend admission happens
+            // separately, before resolving tables in an unsupported cluster.
+            const auto qualified = Ast("SELECT * FROM plato.`/Root/t`;", grammar);
+            const auto& source = *qualified.Statements.at(0).Query->Source;
+            UNIT_ASSERT_VALUES_EQUAL(source.Cluster, "plato");
+            UNIT_ASSERT_VALUES_EQUAL(source.Name, "/Root/t");
         }
     }
 

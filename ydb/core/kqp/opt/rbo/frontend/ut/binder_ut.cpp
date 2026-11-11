@@ -8,7 +8,8 @@ using namespace NKikimr::NKqp::NFrontend;
 using NKikimr::NKqp::NFrontend::NDetail::Compile;
 
 namespace {
-TCatalogTable Catalog(std::string_view name, TSourcePosition pos) {
+TCatalogTable Catalog(const TTableAddress& address, TSourcePosition pos) {
+    const std::string_view name = address.Name;
     if (name != "a" && name != "b" && name != "/Root/a") throw TFrontendError(pos, "unknown table");
     return {std::string(name), {{"id", {ETypeKind::Uint64}}, {"value", {ETypeKind::Int32, true}}, {"name", {ETypeKind::String}}}};
 }
@@ -80,7 +81,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
     }
 
     Y_UNIT_TEST(QualifiedAndDottedNamesRetainIdentityAndAmbiguity) {
-        const auto catalog = [](std::string_view name, TSourcePosition) {
+        const auto catalog = [](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             return TCatalogTable{std::string(name), {{"k", {ETypeKind::Uint64}}, {"x.k", {ETypeKind::Uint64}}}};
         };
         TCompilerSettings settings; settings.Parser = EParser::Verify;
@@ -100,7 +102,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
     }
 
     Y_UNIT_TEST(CatalogColumnUniquenessIsCheckedForReadsAndWrites) {
-        const auto invalid = [](std::string_view name, TSourcePosition) {
+        const auto invalid = [](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             TCatalogTable table{std::string(name), {{"id", {ETypeKind::Uint64}}, {"id", {ETypeKind::String}}}};
             table.WriteSchema = TWriteSchema{{"id"}, {}};
             return table;
@@ -118,7 +121,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             const auto& program = compiled.Program->Get();
             const auto saved = CompileNative(
                 "$q = SELECT id FROM a; $saved = $q; $q = SELECT id FROM b; SELECT 1ul IN $saved", Catalog, settings);
-            UNIT_ASSERT_VALUES_EQUAL(Find(saved.Program->Get(), ERelation::Read).Table, "a");
+            UNIT_ASSERT_VALUES_EQUAL(Find(saved.Program->Get(), ERelation::Read).Table.Name, "a");
             UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 1);
             UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Bool, true}));
             std::vector<TRelId> producers;
@@ -144,7 +147,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
                 const auto parsed = ParseNative(sql, settings);
                 const auto tables = CollectTables(parsed);
                 UNIT_ASSERT_VALUES_EQUAL_C(tables.size(), 1, sql);
-                UNIT_ASSERT_VALUES_EQUAL_C(tables[0].Name, "a", sql);
+                UNIT_ASSERT_VALUES_EQUAL_C(tables[0].Address.Name, "a", sql);
 
             }
         }
@@ -193,12 +196,13 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             const auto parsed = ParseNative(sql, settings);
             const auto discovery = DiscoverNative(ParseNative(sql, settings), settings.Binding);
             std::vector<std::string> discovered, resolved;
-            for (const auto& request : CollectTables(parsed)) discovered.push_back(request.Name);
+            for (const auto& request : CollectTables(parsed)) discovered.push_back(request.Address.Name);
             UNIT_ASSERT_C(discovered == expected, sql);
             std::vector<std::string> retained;
-            for (const auto& request : discovery.Tables()) retained.push_back(request.Name);
+            for (const auto& request : discovery.Tables()) retained.push_back(request.Address.Name);
             UNIT_ASSERT_C(retained == expected, sql);
-            const TTableResolver catalog = [&](std::string_view name, TSourcePosition) {
+            const TTableResolver catalog = [&](const TTableAddress& address, TSourcePosition) {
+                const std::string_view name = address.Name;
                 resolved.emplace_back(name);
                 return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
             };
@@ -229,9 +233,10 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
                 return copy;
             }();
             UNIT_ASSERT_VALUES_EQUAL(discovery.Tables().size(), 1);
-            UNIT_ASSERT_VALUES_EQUAL(discovery.Tables()[0].Name, "/initial/t");
+            UNIT_ASSERT_VALUES_EQUAL(discovery.Tables()[0].Address.Name, "/initial/t");
             for (const auto type : {TType{ETypeKind::Int32}, TType{ETypeKind::Int64, true}}) {
-                const auto program = BindNative(discovery, [&](std::string_view name, TSourcePosition) {
+                const auto program = BindNative(discovery, [&](const TTableAddress& address, TSourcePosition) {
+                    const std::string_view name = address.Name;
                     UNIT_ASSERT_VALUES_EQUAL(name, "/initial/t");
                     return TCatalogTable{std::string(name), {{"value", type}}};
                 });
@@ -262,7 +267,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             "SELECT l.id AS a, r.id AS b FROM t AS l JOIN t AS r ON l.id = r.id; "
             "INSERT INTO t SELECT id FROM t", settings);
         std::size_t lookups = 0;
-        const auto compiled = BindNative(parsed, [&](std::string_view name, TSourcePosition) {
+        const auto compiled = BindNative(parsed, [&](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             ++lookups;
             return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
         });
@@ -328,7 +334,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             unsigned reads = 0;
             for (const auto& relation : program.Relations) {
                 if (relation.Kind == ERelation::Read) {
-                    ++reads; UNIT_ASSERT_VALUES_EQUAL(relation.Table, "a");
+                    ++reads; UNIT_ASSERT_VALUES_EQUAL(relation.Table.Name, "a");
                 }
                 if (relation.Kind == ERelation::Reuse) producers.push_back(relation.Inputs.at(0));
             }
@@ -516,8 +522,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             }
             const auto tables = CollectTables(ParseNative("SELECT (SELECT MAX(value) FROM a), (SELECT MIN(value) FROM b)", settings));
             UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
-            UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
-            UNIT_ASSERT_VALUES_EQUAL(tables[1].Name, "b");
+            UNIT_ASSERT_VALUES_EQUAL(tables[0].Address.Name, "a");
+            UNIT_ASSERT_VALUES_EQUAL(tables[1].Address.Name, "b");
             UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT id, value FROM a)", Catalog, settings), TFrontendError);
             UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM a)", Catalog, settings), TFrontendError);
             settings.Mode = ECompilerMode::Auto;
@@ -572,7 +578,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         UNIT_ASSERT_VALUES_EQUAL(program.Results.size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns[1].Name, "next");
         UNIT_ASSERT(program.Results[0].Columns[1].Type == (TType{ETypeKind::Int32, true}));
-        UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::Read).Table, "a");
+        UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::Read).Table.Name, "a");
         UNIT_ASSERT(Find(program, ERelation::Sort).SortKeys[0].Descending);
         UNIT_ASSERT(Find(program, ERelation::Filter).Predicate.has_value());
         for (std::size_t i = 0; i < program.Expressions.Size(); ++i) {
@@ -650,9 +656,9 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         const auto syntax = ParseNative("$q = SELECT * FROM a; $saved = SELECT * FROM $q; $q = SELECT * FROM b; SELECT * FROM $saved");
         const auto tables = CollectTables(syntax);
         UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
-        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
+        UNIT_ASSERT_VALUES_EQUAL(tables[0].Address.Name, "a");
         const auto compiled = BindNative(syntax, Catalog);
-        UNIT_ASSERT_VALUES_EQUAL(Find(compiled.Get(), ERelation::Read).Table, "a");
+        UNIT_ASSERT_VALUES_EQUAL(Find(compiled.Get(), ERelation::Read).Table.Name, "a");
     }
 
     Y_UNIT_TEST(RebindingBuildsALinearSharedGraph) {

@@ -23,7 +23,7 @@ struct TFixture : NTests::TIdTestContext {
         const auto nodes = ExprCtx.NodeAllocationCounter;
         const auto types = ExprCtx.TypeNodes.size();
         auto query = CompileNativeToRbo(std::string(orderedColumns ? "PRAGMA OrderedColumns; " : "") + Sql.c_str(),
-            [](std::string_view, NFrontend::TSourcePosition) {
+            [](const NFrontend::TTableAddress&, NFrontend::TSourcePosition) {
                 using K = NFrontend::ETypeKind;
                 NFrontend::TCatalogTable schema{"/Root/t", {{"id", {K::Int64}}, {"value", {K::String, true}}, {"a", {K::Int32}}},
                     NFrontend::TWriteSchema{{"id"}, {}, false}};
@@ -352,6 +352,33 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
 
     // Reject unsupported modifiers and unavailable DISTINCT sort dependencies
     // without producing either a partial plan or a spurious type-error issue.
+    Y_UNIT_TEST(AnyJoinAdmissionPrecedesRboConstruction) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        for (const auto* sql : {
+                "SELECT l.id, r.id AS rid FROM ANY t AS l JOIN ANY t AS r ON l.id = r.id;",
+                "SELECT l.id FROM t AS l JOIN ANY t AS r ON l.id = r.id;"}) {
+            auto native = CompileNative(sql, [](const TTableAddress& address, TSourcePosition) {
+                return TCatalogTable{address.Name, {{"id", {ETypeKind::Int64}}}};
+            });
+            UNIT_ASSERT(native.Program);
+            size_t resolved = 0;
+            const TNativeTableResolver resolver = [&](const TTableAddress& address, TSourcePosition) {
+                ++resolved;
+                return TNativeTable{TCatalogTable{address.Name, {{"id", {ETypeKind::Int64}}}},
+                    TRboTable{"/Root/t", "1:1", "", "1"}};
+            };
+            const auto nodes = f.ExprCtx.NodeAllocationCounter, types = f.ExprCtx.TypeNodes.size();
+            UNIT_ASSERT_EXCEPTION(ConvertNativeToRbo(std::move(*native.Program), resolver, f.ExprCtx), TUnsupportedFeature);
+            UNIT_ASSERT_VALUES_EQUAL(resolved, 0);
+            UNIT_ASSERT_EXCEPTION(CompileNativeToRbo(sql, resolver, f.ExprCtx), TUnsupportedFeature);
+            UNIT_ASSERT_VALUES_EQUAL(resolved, 1);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+            UNIT_ASSERT(f.ExprCtx.IssueManager.GetIssues().Empty());
+        }
+    }
+
     Y_UNIT_TEST(UnsupportedSemanticsDoNotSilentlyDisappear) {
         for (const TString sql : {"SELECT l.id FROM t AS l JOIN ANY t AS r ON l.id = r.id;",
             "SELECT DISTINCT id FROM t ORDER BY value;", "SELECT id FROM t ASSUME ORDER BY id;"}) {
@@ -375,6 +402,42 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
         UNIT_ASSERT_C(f.Recompute(*root) == IGraphTransformer::TStatus::Ok, f.ExprCtx.IssueManager.GetIssues().ToString());
         auto again = f.Lower();
         UNIT_ASSERT_VALUES_EQUAL(f.Find(*again, EOperator::Source).size(), 1);
+    }
+
+    Y_UNIT_TEST(ClusterAdmissionPrecedesRboCatalogResolution) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        TBindSettings settings;
+        settings.DefaultCluster = "local";
+        size_t lookups = 0;
+        const TNativeTableResolver resolver = [&](const TTableAddress& address, TSourcePosition) {
+            ++lookups;
+            UNIT_ASSERT_VALUES_EQUAL(address.Cluster, "local");
+            return TNativeTable{TCatalogTable{"/Root/t", {{"id", {ETypeKind::Int64}}}},
+                TRboTable{"/Root/t", "1:1", "", "1"}};
+        };
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto local = CompileNativeToRbo("SELECT id FROM local.t", resolver, f.ExprCtx, settings);
+        UNIT_ASSERT_VALUES_EQUAL(local.Roots.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(lookups, 1);
+        lookups = 0;
+        UNIT_ASSERT_EXCEPTION(CompileNativeToRbo("SELECT id FROM remote.t", resolver, f.ExprCtx, settings), TUnsupportedFeature);
+        UNIT_ASSERT_VALUES_EQUAL(lookups, 0);
+        UNIT_ASSERT_EXCEPTION(CompileNativeToRbo("SELECT id FROM local.t; SELECT id FROM remote.t;",
+            resolver, f.ExprCtx, settings), TUnsupportedFeature);
+        UNIT_ASSERT_VALUES_EQUAL(lookups, 0);
+
+        TCompilerSettings compiler;
+        compiler.Binding = settings;
+        auto remote = CompileNative("SELECT id FROM remote.t",
+            [](const TTableAddress& address, TSourcePosition) {
+                return TCatalogTable{address.Name, {{"id", {ETypeKind::Int64}}}};
+            }, compiler);
+        UNIT_ASSERT_EXCEPTION(ConvertNativeToRbo(std::move(*remote.Program), resolver, f.ExprCtx), TUnsupportedFeature);
+        UNIT_ASSERT_VALUES_EQUAL(lookups, 0);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
     }
 
     Y_UNIT_TEST(PreambleQueriesComposeWithWithCtesAndDerivedTables) {

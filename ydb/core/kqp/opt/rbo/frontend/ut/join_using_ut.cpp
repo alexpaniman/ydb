@@ -8,7 +8,8 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 namespace {
-TCatalogTable Catalog(std::string_view name, TSourcePosition) {
+TCatalogTable Catalog(const TTableAddress& address, TSourcePosition) {
+    const std::string_view name = address.Name;
     const bool left = name == "a";
     return {std::string(name), {{"k", {left ? ETypeKind::Int32 : ETypeKind::Int64}},
         {left ? "lv" : "rv", {ETypeKind::String, true}}}};

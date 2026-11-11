@@ -6,7 +6,8 @@ using namespace NKikimr::NKqp::NFrontend;
 
 namespace {
 TExecutionPlan Prepare(std::string_view sql) {
-    auto compiled = CompileNative(sql, [](std::string_view name, TSourcePosition) {
+    auto compiled = CompileNative(sql, [](const TTableAddress& address, TSourcePosition) {
+        const std::string_view name = address.Name;
         return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
     });
     return PrepareExecution(std::move(*compiled.Program));
@@ -80,7 +81,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExecution) {
         UNIT_ASSERT(plan.Program.Parameters.empty());
         std::vector<TColumnId> inputs;
         for (const auto& relation : plan.Program.Relations) if (relation.Kind == ERelation::Parameter) {
-            UNIT_ASSERT_VALUES_EQUAL(relation.Table, *materialized[0]->MaterializedInput);
+            UNIT_ASSERT_VALUES_EQUAL(relation.ParameterName, *materialized[0]->MaterializedInput);
             UNIT_ASSERT_VALUES_EQUAL(relation.Columns.size(), 1);
             inputs.push_back(relation.Columns[0]);
             UNIT_ASSERT_VALUES_EQUAL(plan.Program.Columns[relation.Columns[0]].Name, materialized[0]->Query.Columns[0].Name);

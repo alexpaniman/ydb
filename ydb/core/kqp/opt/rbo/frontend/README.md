@@ -32,6 +32,11 @@ share it. Catalog order still determines visible columns, while the lexical
 index determines source IDs and supports native type lookup. Translation does
 not copy schemas or build another column-type map. New compilations resolve
 fresh catalog versions through the existing metadata service.
+`TTableAddress` keeps cluster and path separate through discovery, catalog lookup,
+binding and effect ordering. Central source resolution applies path pragmas and
+configured cluster prefixes once; explicitly qualified tables bypass CTE lookup.
+The host validates the complete table set against its execution cluster before
+metadata I/O, and the RBO handoff checks that boundary before creating operators.
 The fast lexer borrows unchanged text during parsing and owns decoded escape
 values until parsing ends. The returned syntax owns all retained strings and
 remains valid after the SQL input and parser are released.
@@ -42,8 +47,11 @@ syntax, never revisit the CST or reparse individual pragmas.
 
 The syntax contract is broader than execution admission. Source-local `ANY`,
 sampling, generic/schema/watermark hints, SQL `EXPLAIN`, and window modifiers
-retain their structured values even where execution is unsupported. Binding
-rejects those unsupported semantics before catalog I/O. Named-window references
+retain their structured values even where execution is unsupported. `ANY` inputs
+bind and type normally, retaining separate left/right flags on their join. The
+RBO handoff rejects these flags before constructing operators; native duplicate
+selection is not implemented. Sampling and unsupported hints, explain modes and
+window modifiers are rejected at binding before catalog I/O. Named-window references
 remain references in the AST and resolve within their query at binding; `OVER w`
 and `OVER (w)` retain distinct syntax. Type syntax is decoded from the CST in one
 place for schema hints, declarations and casts.

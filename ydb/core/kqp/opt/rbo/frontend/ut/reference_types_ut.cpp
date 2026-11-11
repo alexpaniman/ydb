@@ -18,7 +18,8 @@ struct TFixture {
         {"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}},
         {"score", {ETypeKind::Int32, true}}, {"amount", {ETypeKind::Decimal, false, 12, 2}}};
     void Ok(std::string_view sql) {
-        auto result = CompileNative(sql, [&](std::string_view name, TSourcePosition) {
+        auto result = CompileNative(sql, [&](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             return TCatalogTable{std::string(name), Columns};
         }, Settings);
         Program = std::move(*result.Program).Release();

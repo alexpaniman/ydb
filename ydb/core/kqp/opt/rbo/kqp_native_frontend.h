@@ -27,7 +27,7 @@ struct TNativeTable {
     std::function<TNativeIndex(std::string_view, NFrontend::TSourcePosition)> ResolveIndex = {};
 };
 
-using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFrontend::TSourcePosition)>;
+using TNativeTableResolver = std::function<TNativeTable(const NFrontend::TTableAddress&, NFrontend::TSourcePosition)>;
 
 // The checked compiler's complete handoff. Roots own scalar arenas and ordered
 // result columns; parameters and execution metadata require no YQL graph.

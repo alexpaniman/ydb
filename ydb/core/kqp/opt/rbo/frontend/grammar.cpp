@@ -177,6 +177,15 @@ private:
         return Decode(std::move(text), node, true);
     }
     std::string Id(TTree* node) const { return Identifier(node->getText(), node); }
+    std::string Cluster(TTree* node) const {
+        auto* value = Child(node, "pure_column_or_named");
+        auto* name = value ? Child(value, "an_id") : nullptr;
+        if (Has(node, ":") || !name)
+            Unsupported(node, EFeature::Backend, "dynamic, wildcard, or provider-qualified cluster");
+        auto result = Id(name);
+        if (result.empty()) throw TFrontendError(Position(node), "empty cluster name");
+        return result;
+    }
     std::string Variable(TTree* node) const {
         auto text = node->getText();
         return Identifier(text.substr(1), node);
@@ -672,13 +681,17 @@ private:
                 if (Result.Expressions[argument].Kind != ESyntaxKind::Variable)
                     Unsupported(table, EFeature::Statement, "AS_TABLE requires a row-list parameter");
                 result.Name = "$" + Result.Expressions[argument].Text;
-                result.ParameterTable = true;
+                result.ParameterTable = true; result.NameIsBinding = true;
                 return result;
             }
-            if (Child(table, "cluster_expr") || Has(table, "@") || Has(table, "("))
-                Unsupported(table, EFeature::Backend, "qualified, temporary, or callable source");
+            if (auto* cluster = Child(table, "cluster_expr")) result.Cluster = Cluster(cluster);
+            if (Has(table, "@") || Has(table, "("))
+                Unsupported(table, EFeature::Backend, "temporary or callable source");
             auto* view = Child(table, "view_name");
-            if (auto* binding = Child(table, "bind_parameter")) result.Name = "$" + Variable(binding);
+            if (auto* binding = Child(table, "bind_parameter")) {
+                if (!result.Cluster.empty()) Unsupported(table, EFeature::Backend, "qualified dynamic table source");
+                result.Name = "$" + Variable(binding); result.NameIsBinding = true;
+            }
             else if (auto* key = Child(table, "table_key")) {
                 view = Child(key, "view_name");
                 result.Name = Id(Child(key, "id_table_or_type"));
@@ -895,7 +908,8 @@ private:
         if (Child(simple, "table_hints")) Unsupported(simple, EFeature::Statement, "write table hints");
         auto* core = Child(simple, "simple_table_ref_core");
         auto* object = Child(core, "object_ref");
-        if (!object || Child(object, "cluster_expr")) Unsupported(core, EFeature::Statement, "qualified or dynamic write targets");
+        if (!object) Unsupported(core, EFeature::Statement, "dynamic write target");
+        if (auto* cluster = Child(object, "cluster_expr")) result.Target.Cluster = Cluster(cluster);
         auto* id = Child(object, "id_or_at");
         if (Has(id, "@")) Unsupported(id, EFeature::Statement, "anonymous write target");
         result.Target.Position = Position(simple); result.Target.Name = Id(id);
@@ -1100,7 +1114,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << ')';
     };
     auto source = [&](const TSource& value) {
-        text(value.Name); text(value.Alias); out << value.ParameterTable << value.Any;
+        text(value.Name); text(value.Cluster); text(value.Alias); out << value.ParameterTable << value.NameIsBinding << value.Any;
         out << bool(value.Index); if (value.Index) text(*value.Index);
         out << "aliases["; for (const auto& name : value.ColumnAliases) text(name); out << "]";
         if (value.Query) select(*value.Query);

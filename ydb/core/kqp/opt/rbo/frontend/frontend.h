@@ -41,7 +41,7 @@ private:
 
 using TGeneratedValues = std::vector<std::pair<std::string, std::shared_ptr<const TRowExpression>>>;
 
-using TTableResolver = std::function<TCatalogSnapshot(std::string_view, TSourcePosition)>;
+using TTableResolver = std::function<TCatalogSnapshot(const TTableAddress&, TSourcePosition)>;
 using TRelId = std::uint32_t;
 inline constexpr TRelId NoRelation = std::numeric_limits<TRelId>::max();
 
@@ -102,13 +102,15 @@ struct TRelation {
     TSourcePosition Position;
     std::vector<TRelId> Inputs;
     std::vector<TColumnId> Columns;
-    std::string Table;
+    TTableAddress Table;
+    std::string ParameterName;
     std::string Alias;
     std::optional<std::string> Index;
     std::vector<TDefinition> Definitions;
     std::vector<TCapture> Captures;
     std::optional<TExprId> Predicate;
     EJoinKind JoinKind = EJoinKind::Inner;
+    bool LeftAny = false, RightAny = false;
     std::vector<TColumnId> GroupKeys;
     std::vector<TAggregate> Aggregates;
     // DISTINCT exports fresh aliases of its keys, matching the RBO aggregate contract.
@@ -169,6 +171,7 @@ struct TPlannerSetting {
 };
 
 struct TBoundProgram {
+    std::string DefaultCluster;
     TExpressionArena Expressions;
     std::vector<TColumn> Columns;
     std::vector<TRelation> Relations;
@@ -188,6 +191,8 @@ struct TBindSettings {
     bool ClassicDivision = true;
     bool CheckedOps = false;
     std::string TablePathPrefix;
+    std::string DefaultCluster;
+    std::unordered_map<std::string, std::string> ClusterPrefixes;
     std::unordered_map<std::string, TParameterType> ParameterTypes;
     std::shared_ptr<const TExternalBindings> ExternalBindings;
     std::size_t MaxNodes = 1'000'000;
@@ -245,7 +250,7 @@ struct TCompileResult {
 };
 
 struct TTableRequest {
-    std::string Name;
+    TTableAddress Address;
     TSourcePosition Position;
 };
 

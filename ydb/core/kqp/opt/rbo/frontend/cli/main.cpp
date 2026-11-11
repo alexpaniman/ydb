@@ -100,7 +100,9 @@ int main(int argc, char** argv) {
             throw std::runtime_error("unknown or incomplete option: " + std::string(arg));
         }
         const std::string sql{std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>()};
-        const TTableResolver resolve = [&](std::string_view name, TSourcePosition pos) {
+        const TTableResolver resolve = [&](const TTableAddress& address, TSourcePosition pos) {
+            if (!address.Cluster.empty()) throw TFrontendError(pos, "CLI catalog has no configured cluster: " + address.Cluster);
+            const std::string_view name = address.Name;
             const auto it = tables.find(std::string(name));
             if (it == tables.end()) throw TFrontendError(pos, "unknown table: " + std::string(name));
             return it->second;

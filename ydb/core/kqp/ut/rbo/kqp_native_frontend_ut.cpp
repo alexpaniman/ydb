@@ -25,7 +25,7 @@
 
 namespace NKikimr::NKqp {
 namespace {
-TNativeTable NoTables(std::string_view, NFrontend::TSourcePosition pos) {
+TNativeTable NoTables(const NFrontend::TTableAddress&, NFrontend::TSourcePosition pos) {
     throw NFrontend::TFrontendError(pos, "unexpected table lookup");
 }
 
@@ -74,7 +74,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             NTests::TIdTestContext f;
             const auto nodes = f.ExprCtx.NodeAllocationCounter;
             const auto types = f.ExprCtx.TypeNodes.size();
-            auto query = CompileNativeToRbo(sql, [](std::string_view, TSourcePosition) {
+            auto query = CompileNativeToRbo(sql, [](const TTableAddress&, TSourcePosition) {
                 return TNativeTable{TCatalogTable{"t", {{"id", {ETypeKind::Int32}}, {"v", {ETypeKind::Int32, true}}}},
                     TRboTable{"/Root/t", "1:2", "", "3"}};
             }, f.ExprCtx);
@@ -97,7 +97,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const TCatalogSnapshot snapshot(TCatalogTable{"t", {{"z", {ETypeKind::String}}, {"a", {ETypeKind::Int32}}}});
             catalog = &snapshot.Get();
             return CompileNativeToRbo("SELECT l.z, r.z FROM t AS l JOIN t AS r ON l.a = r.a",
-                [&](std::string_view name, TSourcePosition) {
+                [&](const TTableAddress& address, TSourcePosition) {
+                    const std::string_view name = address.Name;
                     UNIT_ASSERT_VALUES_EQUAL(name, "t");
                     ++resolutions;
                     return TNativeTable{snapshot, TRboTable{"/Root/t", "1:2", "", "3"}};
@@ -554,7 +555,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             DECLARE $p AS Int64;
             SELECT value AS z, id AS a FROM t WHERE id = $p;
             SELECT id AS second FROM t;
-        )", [](std::string_view name, TSourcePosition) {
+        )", [](const TTableAddress& address, TSourcePosition) {
+            const std::string_view name = address.Name;
             UNIT_ASSERT_VALUES_EQUAL(name, "t");
             return TNativeTable{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}}}},
                 TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
@@ -589,7 +591,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto nodes = f.ExprCtx.NodeAllocationCounter;
         const auto types = f.ExprCtx.TypeNodes.size();
         auto query = CompileNativeToRbo("SELECT (SELECT MAX(id) FROM t), EXISTS(SELECT id FROM u)",
-            [](std::string_view name, NFrontend::TSourcePosition) {
+            [](const NFrontend::TTableAddress& address, NFrontend::TSourcePosition) {
+                const std::string_view name = address.Name;
                 const TString path = TStringBuilder() << "/Root/" << name;
                 return TNativeTable{NFrontend::TCatalogTable{std::string(name), {{"id", {NFrontend::ETypeKind::Int64}}}},
                     TRboTable{path, "1:2", "", "3"}, NYql::EStorageType::ColumnStorage};
