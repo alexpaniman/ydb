@@ -664,6 +664,11 @@ struct TExprContext {
 };
 
 class TBinder {
+    struct TTableSnapshot {
+        TCatalogTable Table;
+        std::vector<std::size_t> ColumnOrder;
+    };
+
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
         : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Values(syntax.Statements.size())
@@ -1049,23 +1054,29 @@ private:
         return result;
     }
 
-    const TCatalogTable& ResolveTable(const TSource& source) {
+    const TTableSnapshot& ResolveTable(const TSource& source) {
         const auto& path = Bindings.PhysicalPath(source);
         if (const auto found = Tables.find(path); found != Tables.end()) return found->second;
-        auto table = Catalog(path, source.Position);
+        TTableSnapshot snapshot{Catalog(path, source.Position), {}};
+        const auto& table = snapshot.Table;
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
-        // Validate the immutable snapshot once for both reads and writes.
-        // These temporary views expire before the snapshot is moved into Tables.
-        {
-            std::unordered_set<std::string_view> names;
-            names.reserve(table.Columns.size());
-            for (const auto& column : table.Columns)
-                if (!names.insert(column.Name).second) throw TFrontendError(source.Position, "duplicate catalog column: " + column.Name);
+        // The lexical index is shared by every read of this snapshot. It also
+        // validates catalog names without a separate allocated hash entry for
+        // each column. The catalog's public column order remains unchanged.
+        auto& order = snapshot.ColumnOrder;
+        order.reserve(table.Columns.size());
+        for (std::size_t i = 0; i < table.Columns.size(); ++i) order.push_back(i);
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return table.Columns[a].Name < table.Columns[b].Name; });
+        for (std::size_t i = 1; i < order.size(); ++i) {
+            const auto& name = table.Columns[order[i]].Name;
+            if (name == table.Columns[order[i - 1]].Name)
+                throw TFrontendError(source.Position, "duplicate catalog column: " + name);
         }
-        return Tables.emplace(path, std::move(table)).first->second;
+        return Tables.emplace(path, std::move(snapshot)).first->second;
     }
 
-    TBoundSource ReadTable(const TSource& source, const TCatalogTable& table) {
+    TBoundSource ReadTable(const TSource& source, const TTableSnapshot& snapshot) {
+        const auto& table = snapshot.Table;
         TRelation read{ERelation::Read, source.Position}; read.Table = table.Name;
         read.Alias = source.Alias.empty() ? source.Name : source.Alias;
         read.Index = source.Index;
@@ -1074,14 +1085,10 @@ private:
         TScope scope;
         scope.Reserve(table.Columns.size());
         read.Columns.resize(table.Columns.size());
-        std::vector<std::size_t> order;
-        order.reserve(table.Columns.size());
-        for (std::size_t i = 0; i < table.Columns.size(); ++i) order.push_back(i);
         // Allocate source identities in the existing importer's lexical order.
         // CBO's ordered join keys consume these identities. Visible bindings
         // retain catalog order independently, including SELECT * and aliases.
-        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return table.Columns[a].Name < table.Columns[b].Name; });
-        for (auto index : order) {
+        for (auto index : snapshot.ColumnOrder) {
             const auto& column = table.Columns[index];
             read.Columns[index] = Column(column.Name, alias, column.Type, source.Position);
         }
@@ -1146,7 +1153,8 @@ private:
 
     TQueryResult Write(const TWriteStatement& write) {
         const auto pos = write.Target.Position;
-        const auto& table = ResolveTable(write.Target);
+        const auto& snapshot = ResolveTable(write.Target);
+        const auto& table = snapshot.Table;
         if (!table.WriteSchema) {
             auto message = "table does not support native writes: " + table.Name;
             if (!table.WriteUnsupportedReason.empty()) message += "; " + table.WriteUnsupportedReason;
@@ -1239,7 +1247,7 @@ private:
             }
             input = values.Inputs.size() == 1 ? values.Inputs.front() : Relation(std::move(values));
         } else {
-            auto source = ReadTable(write.Target, table);
+            auto source = ReadTable(write.Target, snapshot);
             TExprContext context{source.Scope};
             input = source.Relation;
             if (write.Where != NoSyntax) {
@@ -2507,7 +2515,7 @@ private:
     const TBindSettings& Settings;
     // One catalog snapshot per resolved path; source aliases own their
     // bindings, while repeated sources share the immutable column metadata.
-    std::unordered_map<std::string, TCatalogTable, TStringHash, std::equal_to<>> Tables;
+    std::unordered_map<std::string, TTableSnapshot, TStringHash, std::equal_to<>> Tables;
     TGlobalBindings Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
