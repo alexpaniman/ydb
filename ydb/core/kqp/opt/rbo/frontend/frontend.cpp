@@ -1073,10 +1073,19 @@ private:
         if (alias.empty()) alias = source.Name.substr(source.Name.find_last_of("/.") + 1);
         TScope scope;
         scope.Reserve(table.Columns.size());
-        read.Columns.reserve(table.Columns.size());
-        for (const auto& column : table.Columns) {
-            auto id = Column(column.Name, alias, column.Type, source.Position); read.Columns.push_back(id); scope.Add(ScopeColumn(id));
+        read.Columns.resize(table.Columns.size());
+        std::vector<std::size_t> order;
+        order.reserve(table.Columns.size());
+        for (std::size_t i = 0; i < table.Columns.size(); ++i) order.push_back(i);
+        // Allocate source identities in the existing importer's lexical order.
+        // CBO's ordered join keys consume these identities. Visible bindings
+        // retain catalog order independently, including SELECT * and aliases.
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return table.Columns[a].Name < table.Columns[b].Name; });
+        for (auto index : order) {
+            const auto& column = table.Columns[index];
+            read.Columns[index] = Column(column.Name, alias, column.Type, source.Position);
         }
+        for (auto id : read.Columns) scope.Add(ScopeColumn(id));
         return {Relation(std::move(read)), std::move(scope)};
     }
 
@@ -1638,6 +1647,7 @@ private:
             auto& column = *key;
             const auto input = column.Column;
             column.Column = Column(column.Name, {}, column.Type, pos);
+            ColumnOrigins[column.Column] = ColumnOrigins[input];
             // A bare Null field has one value but is not a runtime data key.
             // Reconstruct it after grouping the remaining fields.
             if (column.Type.Kind == ETypeKind::Null) {

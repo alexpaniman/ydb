@@ -261,6 +261,10 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[0]].Name, "id");
             UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[1]].Name, "value");
             UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[2]].Name, "name");
+            // Physical source identities use lexical order while the source
+            // and public star retain their catalog presentation order.
+            UNIT_ASSERT(relation.Columns[0] < relation.Columns[2]);
+            UNIT_ASSERT(relation.Columns[2] < relation.Columns[1]);
         }
     }
 
