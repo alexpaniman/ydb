@@ -8,6 +8,7 @@ RUN_PYTHON3(
 )
 
 SRCS(
+    catalog.cpp
     frontend.cpp
     explain.cpp
     execution.cpp

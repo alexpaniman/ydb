@@ -40,14 +40,14 @@ Y_UNIT_TEST_SUITE(KqpNativeIndexViews) {
             size_t resolutions = 0;
             auto query = CompileNativeToRbo(test.Sql, [&](std::string_view name, TSourcePosition) {
                 UNIT_ASSERT_VALUES_EQUAL(name, "t");
-                TNativeTable table{{"t", {{"id", {ETypeKind::Int64, true}}, {"g", {ETypeKind::Int32, true}},
+                TNativeTable table{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int64, true}}, {"g", {ETypeKind::Int32, true}},
                     {"payload", {ETypeKind::String, true}}}}, TRboTable{"/Root/t", "1:2", "", "3"}};
                 table.ResolveIndex = [&](std::string_view index, TSourcePosition) {
                     ++resolutions;
                     UNIT_ASSERT_VALUES_EQUAL(index, "by_g");
                     TRboTable impl{"/Root/t/by_g/indexImplTable", "1:3", "", "3"};
-                    impl.NativeColumns = std::make_shared<TRboTable::TColumns>(TRboTable::TColumns{
-                        {"id", {ETypeKind::Int64, true}}, {"g", {ETypeKind::Int32, true}}});
+                    impl.NativeCatalog.emplace(TCatalogTable{std::string(impl.Path), {
+                        {"id", {ETypeKind::Int64, true}}, {"g", {ETypeKind::Int32, true}}}});
                     return TNativeIndex{std::move(impl), {"id"}};
                 };
                 return table;

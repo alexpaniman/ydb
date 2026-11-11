@@ -175,7 +175,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
             DECLARE $a AS Uint64; DECLARE $b AS Uint64;
             UPDATE t SET value = value + 1 WHERE id IN [$a, $b];
         )", [](std::string_view, TSourcePosition) {
-            return TNativeTable{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
+            return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                 TWriteSchema{{"id"}, {}, false}}, TRboTable{"/Root/t", "1:2", "", "3"}};
         }, fixture.ExprCtx);
         auto& root = *query.Roots.front();
@@ -211,7 +211,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
                 UPDATE t SET value = value + 1 WHERE id = 1ul RETURNING value, id;
                 UPDATE t ON (id, value) VALUES (2ul, 20) RETURNING id, value;
             )", [indexed](std::string_view, TSourcePosition) {
-                return TNativeTable{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
+                return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                     TWriteSchema{{"id"}, {}, indexed}}, TRboTable{"/Root/t", "1:2", "", "3"}};
             }, fixture.ExprCtx, {}, {}, fixture.Config.Get());
             UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 2);
@@ -291,13 +291,11 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
         auto query = CompileNativeToRbo(R"(
             INSERT OR REVERT INTO t (id, value) VALUES (NULL, NULL), (1ul, 'same') RETURNING value, id;
         )", [](std::string_view, TSourcePosition) {
-            TNativeTable table{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::String, true}}},
+            TNativeTable table{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::String, true}}},
                 TWriteSchema{{"id"}, {}, UniqueIndex}}, TRboTable{"/Root/t", "1:2", "", "3"}};
             if constexpr (UniqueIndex) {
                 TRboTable index{"/Root/t/by_value/indexImplTable", "1:3", "", "3"};
-                auto columns = std::make_shared<TRboTable::TColumns>();
-                columns->emplace("value", TType{ETypeKind::String, true});
-                index.NativeColumns = std::move(columns);
+                index.NativeCatalog.emplace(TCatalogTable{std::string(index.Path), {{"value", {ETypeKind::String, true}}}});
                 table.UniqueConstraints.push_back({std::move(index), {"value"}});
             }
             return table;
@@ -343,7 +341,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
             UPDATE t SET value = value + 1 WHERE id = 2ul;
             DELETE FROM t ON (id) VALUES (3ul) RETURNING id;
         )", [](std::string_view, TSourcePosition) {
-            return TNativeTable{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
+            return TNativeTable{NFrontend::TCatalogTable{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
                 TWriteSchema{{"id"}, {}, true}}, TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
         }, fixture.ExprCtx);
         UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 4);

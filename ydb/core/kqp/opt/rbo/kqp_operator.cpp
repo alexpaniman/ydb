@@ -46,8 +46,8 @@ NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, NFron
             if (const auto* value = read.OlapProgram.Native().Projections.Find(column))
                 return arena.ImportType(*value->GetNativeArena(), value->GetNativeType());
         }
-        Y_ENSURE(read.TableRef.NativeColumns, "Missing native source schema");
-        return read.TableRef.NativeColumns->at(props.InfoUnitRegistry.Get(column).GetColumnName());
+        Y_ENSURE(read.TableRef.NativeCatalog, "Missing native source schema");
+        return read.TableRef.GetColumnType(props.InfoUnitRegistry.Get(column).GetColumnName());
     } else if (input.Kind == EOperator::Map) {
         if (const auto* value = CastOperator<TOpMap>(input).FindOutputElement(column)) {
             Y_ENSURE(value->GetExpression().IsNative(), "Expected a native map definition");

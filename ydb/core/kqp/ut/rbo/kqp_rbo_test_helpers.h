@@ -31,9 +31,13 @@ struct TIdTestContext {
 
     TIntrusivePtr<TOpRead> Read(TUnorderedIUs columns) {
         TRboTable table{"/Root/table", "1:1", "", "1"};
-        auto types = std::make_shared<TRboTable::TColumns>();
-        for (const auto id : columns) types->emplace(Props.InfoUnitRegistry.Get(id).GetColumnName(), NFrontend::TType{NFrontend::ETypeKind::Int32});
-        table.NativeColumns = std::move(types);
+        NFrontend::TCatalogTable schema{std::string(table.Path), {}};
+        THashSet<TString> names;
+        for (const auto id : columns) {
+            const auto name = Props.InfoUnitRegistry.Get(id).GetColumnName();
+            if (names.insert(name).second) schema.Columns.push_back({std::string(name), {NFrontend::ETypeKind::Int32}});
+        }
+        table.NativeCatalog.emplace(std::move(schema));
         return MakeIntrusive<TOpRead>("", std::move(columns), NYql::EStorageType::RowStorage,
             table, nullptr, std::nullopt, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, Pos);
     }

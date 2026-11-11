@@ -727,11 +727,6 @@ struct TExprContext {
 };
 
 class TBinder {
-    struct TTableSnapshot {
-        TCatalogTable Table;
-        std::vector<std::size_t> ColumnOrder;
-    };
-
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings,
         const TGlobalBindings& bindings)
@@ -1118,29 +1113,16 @@ private:
         return result;
     }
 
-    const TTableSnapshot& ResolveTable(const TSource& source) {
+    const TCatalogSnapshot& ResolveTable(const TSource& source) {
         const auto& path = Bindings.PhysicalPath(source);
         if (const auto found = Tables.find(path); found != Tables.end()) return found->second;
-        TTableSnapshot snapshot{Catalog(path, source.Position), {}};
-        const auto& table = snapshot.Table;
-        if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
-        // The lexical index is shared by every read of this snapshot. It also
-        // validates catalog names without a separate allocated hash entry for
-        // each column. The catalog's public column order remains unchanged.
-        auto& order = snapshot.ColumnOrder;
-        order.reserve(table.Columns.size());
-        for (std::size_t i = 0; i < table.Columns.size(); ++i) order.push_back(i);
-        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return table.Columns[a].Name < table.Columns[b].Name; });
-        for (std::size_t i = 1; i < order.size(); ++i) {
-            const auto& name = table.Columns[order[i]].Name;
-            if (name == table.Columns[order[i - 1]].Name)
-                throw TFrontendError(source.Position, "duplicate catalog column: " + name);
-        }
+        auto snapshot = Catalog(path, source.Position);
+        snapshot.Validate(source.Position);
         return Tables.emplace(path, std::move(snapshot)).first->second;
     }
 
-    TBoundSource ReadTable(const TSource& source, const TTableSnapshot& snapshot) {
-        const auto& table = snapshot.Table;
+    TBoundSource ReadTable(const TSource& source, const TCatalogSnapshot& snapshot) {
+        const auto& table = snapshot.Get();
         TRelation read{ERelation::Read, source.Position}; read.Table = table.Name;
         read.Alias = source.Alias.empty() ? source.Name : source.Alias;
         read.Index = source.Index;
@@ -1152,12 +1134,12 @@ private:
         // Allocate source identities in the existing importer's lexical order.
         // CBO's ordered join keys consume these identities. Visible bindings
         // retain catalog order independently, including SELECT * and aliases.
-        for (auto index : snapshot.ColumnOrder) {
+        for (auto index : snapshot.ColumnOrder()) {
             const auto& column = table.Columns[index];
             read.Columns[index] = Column(column.Name, alias, column.Type, source.Position);
         }
         for (auto id : read.Columns) columns.push_back(ScopeColumn(id));
-        return {Relation(std::move(read)), TScope(std::move(columns), snapshot.ColumnOrder)};
+        return {Relation(std::move(read)), TScope(std::move(columns), snapshot.ColumnOrder())};
     }
 
     const TGeneratedValues& GeneratedColumns(const TCatalogTable& table, TSourcePosition pos) {
@@ -1218,7 +1200,7 @@ private:
     TQueryResult Write(const TWriteStatement& write) {
         const auto pos = write.Target.Position;
         const auto& snapshot = ResolveTable(write.Target);
-        const auto& table = snapshot.Table;
+        const auto& table = snapshot.Get();
         if (!table.WriteSchema) {
             auto message = "table does not support native writes: " + table.Name;
             if (!table.WriteUnsupportedReason.empty()) message += "; " + table.WriteUnsupportedReason;
@@ -2579,7 +2561,7 @@ private:
     const TBindSettings& Settings;
     // One catalog snapshot per resolved path; source aliases own their
     // bindings, while repeated sources share the immutable column metadata.
-    std::unordered_map<std::string, TTableSnapshot, TStringHash, std::equal_to<>> Tables;
+    std::unordered_map<std::string, TCatalogSnapshot, TStringHash, std::equal_to<>> Tables;
     const TGlobalBindings& Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;

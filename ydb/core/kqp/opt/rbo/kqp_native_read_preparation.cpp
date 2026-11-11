@@ -12,11 +12,11 @@ void PrepareNativeIndexReads(TOpRoot& root, std::span<const TNativeIndexRead> re
     THashMap<IOperator*, TIntrusivePtr<IOperator>> replacements;
     auto& registry = root.PlanProps.InfoUnitRegistry;
     for (const auto& [read, index] : reads) {
-        Y_ENSURE(index.Table && index.Table.NativeColumns && !index.MainKeys.empty());
-        const auto& columns = *index.Table.NativeColumns;
+        Y_ENSURE(index.Table && index.Table.NativeCatalog && !index.MainKeys.empty());
+        const auto& columns = index.Table;
         auto needed = GetLiveOut(read.Get());
         bool covering = true;
-        for (const auto id : needed) covering &= columns.contains(registry.Get(id).GetColumnName());
+        for (const auto id : needed) covering &= columns.HasColumn(registry.Get(id).GetColumnName());
         if (covering) {
             read->TableRef = index.Table;
             read->GetColumns() = needed;
@@ -32,7 +32,7 @@ void PrepareNativeIndexReads(TOpRoot& root, std::span<const TNativeIndexRead> re
             auto* candidate = CastOperator<TOpFilter>(read->Parents.front().first);
             bool covered = candidate->GetUniqueRawInputIUs().IsSubsetOf(read->GetColumns());
             for (const auto id : candidate->GetUniqueRawInputIUs())
-                covered &= columns.contains(registry.Get(id).GetColumnName());
+                covered &= columns.HasColumn(registry.Get(id).GetColumnName());
             if (covered) {
                 filter = candidate;
                 needed = GetLiveOut(filter);
@@ -52,7 +52,7 @@ void PrepareNativeIndexReads(TOpRoot& root, std::span<const TNativeIndexRead> re
             return it->second;
         };
         for (const auto& name : index.MainKeys) {
-            Y_ENSURE(columns.contains(name), "Index is missing a primary key column: " << name);
+            Y_ENSURE(columns.HasColumn(name), "Index is missing a primary key column: " << name);
             lookupKeys.Append(inputColumn(name), name);
         }
         TSubstitutions renames;

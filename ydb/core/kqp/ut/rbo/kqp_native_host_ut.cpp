@@ -6198,6 +6198,44 @@ $round = ($x,$y) -> {return $x;};
             TableQuery(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
     }
 
+    Y_UNIT_TEST(CatalogSnapshotsRefreshResultMetadataAfterAlter) {
+        auto settings = NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableAstCache(true);
+        TKikimrRunner kikimr(settings);
+        auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto created = tableSession.ExecuteSchemeQuery(
+            "CREATE TABLE `/Root/catalog_snapshot` (id Int64 NOT NULL, value String, PRIMARY KEY(id));").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        auto rows = TValueBuilder().BeginList().AddListItem().BeginStruct()
+            .AddMember("id").Int64(1).AddMember("value").OptionalString("one").EndStruct().EndList().Build();
+        const auto written = kikimr.GetTableClient().BulkUpsert("/Root/catalog_snapshot", std::move(rows)).GetValueSync();
+        UNIT_ASSERT_C(written.IsSuccess(), written.GetIssues().ToString());
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        // Keep the reference PR's repeated SELECT * / ALTER / same SELECT *
+        // sequence. A shared snapshot must not retain a previous catalog version.
+        for (const size_t count : {2, 2, 3}) {
+            if (count == 3) {
+                const auto altered = tableSession.ExecuteSchemeQuery(
+                    "ALTER TABLE `/Root/catalog_snapshot` ADD COLUMN extra String;").GetValueSync();
+                UNIT_ASSERT_C(altered.IsSuccess(), altered.GetIssues().ToString());
+            }
+            const auto result = session.ExecuteQuery("SELECT * FROM `/Root/catalog_snapshot` ORDER BY id;",
+                NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+            const auto& set = result.GetResultSet(0);
+            UNIT_ASSERT_VALUES_EQUAL(set.GetColumnsMeta().size(), count);
+            auto expected = SnapshotRows(set);
+            UNIT_ASSERT_VALUES_EQUAL(expected.NamedValues, count == 2 ? "[[1;[\"one\"]]]" : "[[#;1;[\"one\"]]]");
+            if (count == 3) {
+                const auto& columns = set.GetColumnsMeta();
+                const auto extra = std::find_if(columns.begin(), columns.end(), [](const auto& column) { return column.Name == "extra"; });
+                UNIT_ASSERT(extra != columns.end());
+                UNIT_ASSERT_VALUES_EQUAL(extra->Type.ToString(), "String?");
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(AutoModeReportsUnsupportedFallback, DefaultMode) {
         auto settings = NativeSettings(DefaultMode ? NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY : NKikimrConfig::TTableServiceConfig::NATIVE_AUTO);
         settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);

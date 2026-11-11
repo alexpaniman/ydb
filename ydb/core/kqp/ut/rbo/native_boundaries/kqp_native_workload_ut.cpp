@@ -99,7 +99,7 @@ void CheckClickBench(ui32 queryId, bool columnStore, const TVector<TString>& out
     }
     for (const auto id : read->GetColumns()) {
         const auto& name = root->PlanProps.InfoUnitRegistry.Get(id).GetColumnName();
-        UNIT_ASSERT(read->GetNativeIUType(id) == read->TableRef.NativeColumns->at(name));
+        UNIT_ASSERT(read->GetNativeIUType(id) == read->TableRef.GetColumnType(name));
     }
     for (const auto& item : *root) {
         for (const auto& expression : item.Current->GetExpressions()) {

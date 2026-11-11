@@ -33,14 +33,16 @@ void SetNativeReadType(NTests::TIdTestContext& f, TOpRead& read, const TUnordere
     NFrontend::ETypeKind kind = NFrontend::ETypeKind::Int32) {
     if (!f.Props.NativeExpressions) f.Props.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>();
     TNativeSchema schema{{}, std::nullopt, f.Props.NativeExpressions};
-    auto columns = std::make_shared<TRboTable::TColumns>();
+    NFrontend::TCatalogTable catalog{std::string(read.TableRef.Path), {}};
+    THashSet<TString> names;
     for (auto id : read.GetColumns()) {
         NFrontend::TType type{kind, nullable.Contains(id)};
         schema.Row.emplace(id, type);
-        columns->emplace(f.Props.InfoUnitRegistry.Get(id).GetColumnName(), type);
+        const auto name = f.Props.InfoUnitRegistry.Get(id).GetColumnName();
+        if (names.insert(name).second) catalog.Columns.push_back({std::string(name), type});
     }
     read.NativeSchema = std::move(schema);
-    read.TableRef.NativeColumns = std::move(columns);
+    read.TableRef.NativeCatalog.emplace(std::move(catalog));
 }
 
 IGraphTransformer::TStatus ComputeTypesWithoutBackend(TOpRoot& root, TRBOContext& context) {
@@ -64,6 +66,38 @@ using NTests::CheckScalar;
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(CatalogSnapshotSurvivesTheResolverAndIsSharedByAliasedReads) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const TCatalogTable* catalog = nullptr;
+        size_t resolutions = 0;
+        auto query = [&] {
+            const TCatalogSnapshot snapshot(TCatalogTable{"t", {{"z", {ETypeKind::String}}, {"a", {ETypeKind::Int32}}}});
+            catalog = &snapshot.Get();
+            return CompileNativeToRbo("SELECT l.z, r.z FROM t AS l JOIN t AS r ON l.a = r.a",
+                [&](std::string_view name, TSourcePosition) {
+                    UNIT_ASSERT_VALUES_EQUAL(name, "t");
+                    ++resolutions;
+                    return TNativeTable{snapshot, TRboTable{"/Root/t", "1:2", "", "3"}};
+                }, f.ExprCtx);
+        }();
+        UNIT_ASSERT_VALUES_EQUAL(resolutions, 1);
+        auto& root = *query.Roots.front();
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        TUnorderedIUs bindings;
+        size_t reads = 0;
+        for (const auto& item : root) if (item.Current->Kind == EOperator::Source) {
+            const auto& read = CastOperator<TOpRead>(*item.Current);
+            UNIT_ASSERT(read.TableRef.NativeCatalog);
+            UNIT_ASSERT(&read.TableRef.NativeCatalog->Get() == catalog);
+            UNIT_ASSERT(read.TableRef.GetColumnType("a") == (TType{ETypeKind::Int32}));
+            for (const auto id : read.GetColumns()) UNIT_ASSERT(bindings.Add(id));
+            ++reads;
+        }
+        UNIT_ASSERT_VALUES_EQUAL(reads, 2);
+        UNIT_ASSERT_VALUES_EQUAL(bindings.Size(), 4);
+    }
+
     Y_UNIT_TEST(ListOperationsEmitExecutableTerminalNodes) {
         for (const auto* sql : {
             "SELECT ListConcat(CAST(ListFromRange(1, 10) AS List<String>), '..')",
@@ -96,7 +130,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto nodes = f.ExprCtx.NodeAllocationCounter;
             const auto types = f.ExprCtx.TypeNodes.size();
             const auto query = CompileNativeToRbo(sql, [](auto, auto) {
-                return TNativeTable{{"t", {{"id", {ETypeKind::Int64}}}},
+                return TNativeTable{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int64}}}},
                     TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
             }, f.ExprCtx);
             UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 1);
@@ -471,7 +505,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         auto query = CompileNativeToRbo("INSERT INTO t (payload) VALUES (7) RETURNING id, g", [](auto, auto) {
             TWriteSchema writes{{"id"}, {{"id", EColumnDefault::Sequence}}, false};
             writes.GeneratedColumns = {{"g", "id * 10 + COALESCE(payload, 0)"}};
-            return TNativeTable{{"t", {{"id", {ETypeKind::Int32}}, {"payload", {ETypeKind::Int32, true}},
+            return TNativeTable{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int32}}, {"payload", {ETypeKind::Int32, true}},
                 {"g", {ETypeKind::Int32, true}}}, std::move(writes)}, TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
         }, f.ExprCtx);
         auto& root = *query.Roots.front();
@@ -500,7 +534,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             SELECT id AS second FROM t;
         )", [](std::string_view name, TSourcePosition) {
             UNIT_ASSERT_VALUES_EQUAL(name, "t");
-            return TNativeTable{{"t", {{"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}}}},
+            return TNativeTable{NFrontend::TCatalogTable{"t", {{"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}}}},
                 TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
         }, f.ExprCtx);
         UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 2);
@@ -535,7 +569,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         auto query = CompileNativeToRbo("SELECT (SELECT MAX(id) FROM t), EXISTS(SELECT id FROM u)",
             [](std::string_view name, NFrontend::TSourcePosition) {
                 const TString path = TStringBuilder() << "/Root/" << name;
-                return TNativeTable{{std::string(name), {{"id", {NFrontend::ETypeKind::Int64}}}},
+                return TNativeTable{NFrontend::TCatalogTable{std::string(name), {{"id", {NFrontend::ETypeKind::Int64}}}},
                     TRboTable{path, "1:2", "", "3"}, NYql::EStorageType::ColumnStorage};
             }, f.ExprCtx);
         THashSet<TString> tables;
@@ -555,8 +589,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto key = *source.GetInput()->GetOutputIUs().begin();
         const auto fetched = source.PlanProps.InfoUnitRegistry.Add(TInfoUnit("value"));
         TRboTable table("/Root/table", "1:2", "", "3");
-        table.NativeColumns = std::make_shared<TRboTable::TColumns>(TRboTable::TColumns{
-            {"value", {NFrontend::ETypeKind::Int32, true}}});
+        table.NativeCatalog.emplace(NFrontend::TCatalogTable{std::string(table.Path), {
+            {"value", {NFrontend::ETypeKind::Int32, true}}}});
         TOpTableLookup::TLookupKeys keys;
         keys.Append(key, "key");
         auto lookup = MakeIntrusive<TOpTableLookup>(source.GetInput(), source.Pos, table, TUnorderedIUs{fetched}, std::move(keys));

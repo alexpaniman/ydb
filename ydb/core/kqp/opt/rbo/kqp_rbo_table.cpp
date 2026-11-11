@@ -9,16 +9,15 @@ TRboTable MakeRboTableIdentity(const NYql::TKikimrTableMetadata& metadata) {
 
 TRboTable MakeRboTable(const NYql::TKikimrTableMetadata& metadata) {
     auto table = MakeRboTableIdentity(metadata);
-    {
-        auto columns = std::make_shared<TRboTable::TColumns>();
-        columns->reserve(metadata.Columns.size());
-        for (const auto& [name, column] : metadata.Columns) {
-            auto type = NFrontend::ParseType(std::string_view(column.Type.data(), column.Type.size()));
-            type.OptionalDepth = !column.NotNull;
-            columns->emplace(name, type);
-        }
-        table.NativeColumns = std::move(columns);
+    NFrontend::TCatalogTable schema{std::string(metadata.Name), {}};
+    schema.Columns.reserve(metadata.Columns.size());
+    for (const auto& [name, column] : metadata.Columns) {
+        auto type = NFrontend::ParseType(std::string_view(column.Type.data(), column.Type.size()));
+        type.OptionalDepth = !column.NotNull;
+        schema.Columns.push_back({std::string(name), type});
     }
+    table.NativeCatalog.emplace(std::move(schema));
+    table.NativeCatalog->Validate({});
     return table;
 }
 

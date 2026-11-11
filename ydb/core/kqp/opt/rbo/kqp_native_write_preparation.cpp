@@ -34,7 +34,7 @@ TIntrusivePtr<IOperator> RequireNoConflicts(TVector<TIntrusivePtr<IOperator>> co
 
 void CollectKeyConflicts(const TIntrusivePtr<TOpReplicate>& rows, const TRboTable& table,
     const TVector<TString>& names, const THashMap<TString, TInfoUnitId>& columns,
-    const TRboTable::TColumns& types, bool skipNullKeys, TPositionHandle pos, TPlanProps& props,
+    const TRboTable& types, bool skipNullKeys, TPositionHandle pos, TPlanProps& props,
     TVector<TIntrusivePtr<IOperator>>& conflicts) {
     Y_ENSURE(!names.empty());
     TIntrusivePtr<IOperator> input = rows;
@@ -43,7 +43,7 @@ void CollectKeyConflicts(const TIntrusivePtr<TOpReplicate>& rows, const TRboTabl
     for (const auto& name : names) {
         const auto key = rows->GetRebindings().At(columns.at(name));
         keys.Append(key);
-        if (skipNullKeys) nonNull.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(key, types.at(name), pos, &props)));
+        if (skipNullKeys) nonNull.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(key, types.GetColumnType(name), pos, &props)));
     }
     if (skipNullKeys) input = MakeIntrusive<TOpFilter>(input, pos, MakeConjunction(nonNull));
 
@@ -77,23 +77,23 @@ void CollectKeyConflicts(const TIntrusivePtr<TOpReplicate>& rows, const TRboTabl
 TIntrusivePtr<IOperator> PrepareInsertRevert(TIntrusivePtr<IOperator> input,
     const TOrderedIUs<TString>& columns, const TNativeTable& table,
     TPositionHandle pos, TPlanProps& props) {
-    Y_ENSURE(table.Schema.WriteSchema && table.Table.NativeColumns);
+    Y_ENSURE(table.Schema.Get().WriteSchema && table.Table.NativeCatalog);
     THashMap<TString, TInfoUnitId> source;
     for (const auto& [id, name] : columns.Items()) source.emplace(name, id);
     TVector<TString> primary;
-    for (const auto& name : table.Schema.WriteSchema->Keys) primary.emplace_back(name);
+    for (const auto& name : table.Schema.Get().WriteSchema->Keys) primary.emplace_back(name);
 
     // The write and every check share the original rows, including volatile
     // expressions. A conflict suppresses the entire statement, not one row.
     auto rows = TReplicate::Create(std::move(input), pos, props.InfoUnitRegistry);
     auto insert = rows->AddOutput();
     TVector<TIntrusivePtr<IOperator>> conflicts;
-    CollectKeyConflicts(rows->AddOutput(), table.Table, primary, source, *table.Table.NativeColumns,
+    CollectKeyConflicts(rows->AddOutput(), table.Table, primary, source, table.Table,
         false, pos, props, conflicts);
     for (const auto& constraint : table.UniqueConstraints) {
         // INSERT binding supplies omitted nullable columns as NULL. Unique
         // indexes exclude any key containing NULL; primary keys retain them.
-        CollectKeyConflicts(rows->AddOutput(), constraint.Table, constraint.Keys, source, *table.Table.NativeColumns,
+        CollectKeyConflicts(rows->AddOutput(), constraint.Table, constraint.Keys, source, table.Table,
             true, pos, props, conflicts);
     }
     auto gate = RequireNoConflicts(std::move(conflicts), pos, props);

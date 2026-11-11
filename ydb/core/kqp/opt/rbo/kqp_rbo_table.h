@@ -1,6 +1,6 @@
 #pragma once
 
-#include "frontend/expression.h"
+#include "frontend/catalog.h"
 #include <memory>
 #include <optional>
 #include <util/generic/vector.h>
@@ -15,18 +15,25 @@ namespace NFrontend { struct TRowExpression; }
 // A catalog identity, not a backend expression. Native column types survive
 // index selection and logical copying without allocating YQL annotations.
 struct TRboTable {
-    using TColumns = THashMap<TString, NFrontend::TType>;
     TString Path;
     TString PathId;
     TString SysView;
     TString Version;
-    std::shared_ptr<const TColumns> NativeColumns;
+    std::optional<NFrontend::TCatalogSnapshot> NativeCatalog;
 
     TRboTable() = default;
     TRboTable(TString path, TString pathId, TString sysView, TString version)
         : Path(std::move(path)), PathId(std::move(pathId)), SysView(std::move(sysView)), Version(std::move(version)) {}
 
     explicit operator bool() const { return !Path.empty(); }
+
+    NFrontend::TType GetColumnType(TStringBuf name) const {
+        return NativeCatalog.value().GetType({name.data(), name.size()});
+    }
+
+    bool HasColumn(TStringBuf name) const {
+        return NativeCatalog.value().FindColumn({name.data(), name.size()});
+    }
 };
 
 enum class EEffectType : ui32 {
@@ -57,8 +64,8 @@ struct TTableSinkSettings {
     TEffectOptions Options;
 };
 
-// Frontend conversion already has a checked native schema and attaches its
-// columns itself. Index selection uses the complete metadata adapter below.
+// Frontend conversion attaches its checked native catalog snapshot directly.
+// Index selection uses the complete metadata adapter below.
 TRboTable MakeRboTableIdentity(const NYql::TKikimrTableMetadata& metadata);
 TRboTable MakeRboTable(const NYql::TKikimrTableMetadata& metadata);
 

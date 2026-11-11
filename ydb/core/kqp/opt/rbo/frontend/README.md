@@ -26,6 +26,12 @@ references and pragmas once, and identifies the required tables. Binding reuses
 that immutable resolution after metadata arrives; catalog schemas and local
 column bindings remain fresh for each compilation. `CompileNative` binds directly
 for callers with a synchronous catalog, without a table-discovery pass.
+`TCatalogSnapshot` owns the decoded schema and its lexical column-name index.
+The host creates one snapshot for each loaded table version; binding and RBO
+share it. Catalog order still determines visible columns, while the lexical
+index determines source IDs and supports native type lookup. Translation does
+not copy schemas or build another column-type map. New compilations resolve
+fresh catalog versions through the existing metadata service.
 The fast lexer borrows unchanged text during parsing and owns decoded escape
 values until parsing ends. The returned syntax owns all retained strings and
 remains valid after the SQL input and parser are released.
@@ -125,7 +131,7 @@ Copying a plan rebinds expressions, captures, read predicates and OLAP projectio
 `TNativeSchema` describes rows and aggregate states. `ComputeNativeTypes` checks
 operators and rebinds scalars using native types. AVG/statistical states use
 arena-owned tuple shapes; nested optional types preserve each optional layer.
-`TRboTable` holds catalog identity and native column types as values. Read ranges,
+`TRboTable` holds catalog identity and the immutable native catalog snapshot. Read ranges,
 lookup point prefixes, OLAP predicates, sink settings and stream lookup key types remain native
 through stage assignment.
 Range bounds may be literals, parameters or repeatable scalar expressions without

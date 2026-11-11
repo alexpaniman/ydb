@@ -93,7 +93,7 @@ Y_UNIT_TEST_SUITE(KqpNativeJoinUsingRuntime) {
             "SELECT k, l.k AS lk, r.k AS rk FROM L AS l FULL JOIN R AS r USING(k)",
             [](std::string_view name, TSourcePosition) {
                 const auto path = TString(name);
-                return TNativeTable{{std::string(name), {{"k", {name == "L" ? ETypeKind::Int32 : ETypeKind::Int64, true}}}},
+                return TNativeTable{NFrontend::TCatalogTable{std::string(name), {{"k", {name == "L" ? ETypeKind::Int32 : ETypeKind::Int64, true}}}},
                     TRboTable{path, "1:2", "", "3"}, NYql::EStorageType::RowStorage};
             }, fixture.ExprCtx);
         UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 1);

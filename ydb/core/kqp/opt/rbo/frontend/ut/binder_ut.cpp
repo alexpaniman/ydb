@@ -21,6 +21,51 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(CatalogSnapshotsOwnTheirVersionAndPreserveBothColumnOrders) {
+        TCatalogTable source{"t", {{"z", {ETypeKind::String}}, {"a", {ETypeKind::Int32}}},
+            TWriteSchema{{"a"}, {}}};
+        const TCatalogSnapshot snapshot(source);
+        const auto copy = snapshot;
+        source.Columns[0].Name = "changed";
+        source.Columns[1].Type = {ETypeKind::Int64};
+        source.WriteSchema->Keys.clear();
+        UNIT_ASSERT(&copy.Get() == &snapshot.Get());
+        UNIT_ASSERT(copy.ColumnOrder().data() == snapshot.ColumnOrder().data());
+        UNIT_ASSERT_VALUES_EQUAL(copy.Get().Columns[0].Name, "z");
+        UNIT_ASSERT_VALUES_EQUAL(copy.Get().WriteSchema->Keys[0], "a");
+        UNIT_ASSERT(copy.GetType("a") == (TType{ETypeKind::Int32}));
+        UNIT_ASSERT(!copy.FindColumn("changed"));
+        UNIT_ASSERT_EXCEPTION(copy.GetType("missing"), std::out_of_range);
+        const auto compiled = CompileNative("SELECT * FROM t", [&](auto, auto) { return copy; });
+        const auto& program = compiled.Program->Get();
+        UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns[0].Name, "z");
+        UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns[1].Name, "a");
+        UNIT_ASSERT_VALUES_EQUAL(program.Columns[0].Name, "a");
+        UNIT_ASSERT_VALUES_EQUAL(program.Columns[1].Name, "z");
+        const auto changed = CompileNative("SELECT a FROM t", [&](auto, auto) { return source; });
+        UNIT_ASSERT(changed.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Int64}));
+    }
+
+    Y_UNIT_TEST(SharedCatalogValidationKeepsTheSourcePosition) {
+        const TCatalogSnapshot duplicate(TCatalogTable{"t", {{"x", {ETypeKind::Int32}}, {"x", {ETypeKind::String}}}});
+        const TCatalogSnapshot unnamed(TCatalogTable{});
+        for (const auto& snapshot : {duplicate, unnamed}) {
+            TSourcePosition requested;
+            try {
+                CompileNative("SELECT *\nFROM t", [&](auto, TSourcePosition pos) {
+                    requested = pos;
+                    return snapshot;
+                });
+                UNIT_FAIL("invalid catalog was accepted");
+            } catch (const TFrontendError& error) {
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Offset, requested.Offset);
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Line, requested.Line);
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Column, requested.Column);
+                UNIT_ASSERT_VALUES_EQUAL(requested.Line, 2);
+            }
+        }
+    }
+
     Y_UNIT_TEST(FilterOptionalityMatchesTheRboInputContract) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;

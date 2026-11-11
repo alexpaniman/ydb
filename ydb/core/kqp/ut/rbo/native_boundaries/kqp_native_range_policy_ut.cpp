@@ -77,7 +77,7 @@ namespace {
             table->Columns["x"].Type = name; table->Columns["x"].NotNull = !nullable;
             f.Tables->GetOrAddTable("ut", "/Root", table->Name).Metadata = table;
             auto read = f.Read({key});
-            read->TableRef.NativeColumns = std::make_shared<TRboTable::TColumns>(TRboTable::TColumns{{"x", keyType}});
+            read->TableRef.NativeCatalog.emplace(TCatalogTable{std::string(table->Name), {{"x", keyType}}});
             f.SetType(*read); read->NativeSchema->Row[key] = keyType;
             auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
             const auto nodes = ctx.NodeAllocationCounter, types = ctx.TypeNodes.size();
@@ -167,8 +167,8 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             table->Columns["suffix"].Type = "Int32"; table->Columns["suffix"].NotNull = true;
             f.Tables->GetOrAddTable("ut", "/Root", table->Name).Metadata = table;
             auto read = f.Read({key}); read->StorageType = storage;
-            read->TableRef.NativeColumns = std::make_shared<TRboTable::TColumns>(
-                TRboTable::TColumns{{"x", keyType}, {"suffix", {ETypeKind::Int32}}});
+            read->TableRef.NativeCatalog.emplace(TCatalogTable{std::string(table->Name),
+                {{"x", keyType}, {"suffix", {ETypeKind::Int32}}}});
             f.SetType(*read); read->NativeSchema->Row[key] = keyType;
             auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
             const auto nodes = f.ExprCtx.NodeAllocationCounter, types = f.ExprCtx.TypeNodes.size();

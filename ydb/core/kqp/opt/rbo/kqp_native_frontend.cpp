@@ -148,7 +148,7 @@ TNativeQuery CompileNativeToRbo(std::string_view sql,
             if (!table.Table) throw NFrontend::TFrontendError(pos, "table resolver returned no table identity");
             auto schema = table.Schema;
             // The bound relation uses the resolved path, not its source alias.
-            tables.emplace(schema.Name, table);
+            tables.emplace(schema.Get().Name, table);
             tables.emplace(std::string(name), std::move(table));
             return schema;
         }
@@ -170,10 +170,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     for (const auto& relation : program.Relations) if ((relation.Kind == NFrontend::ERelation::Read || relation.Kind == NFrontend::ERelation::Effect) && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);
         if (!table.Table) throw NFrontend::TFrontendError(relation.Position, "table resolver returned no table identity");
-        auto columns = std::make_shared<TRboTable::TColumns>();
-        columns->reserve(table.Schema.Columns.size());
-        for (const auto& column : table.Schema.Columns) columns->emplace(String(column.Name), column.Type);
-        table.Table.NativeColumns = std::move(columns);
+        table.Table.NativeCatalog = table.Schema;
         tables.emplace(relation.Table, std::move(table));
     }
     auto arena = std::make_shared<NFrontend::TExpressionArena>(std::move(program.Expressions));

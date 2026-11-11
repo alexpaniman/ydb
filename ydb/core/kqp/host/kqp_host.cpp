@@ -1568,7 +1568,7 @@ private:
                         }
                         // A resolved table may be used under several aliases and again
                         // during operator translation. Decode its native schema once.
-                        std::unordered_map<const TKikimrTableMetadata*, F::TCatalogTable> nativeSchemas;
+                        std::unordered_map<const TKikimrTableMetadata*, F::TCatalogSnapshot> nativeSchemas;
                         auto schema = [&](std::string_view path, F::TSourcePosition pos) {
                             const auto& meta = metadata.at(std::string(path));
                             if (const auto found = nativeSchemas.find(meta.Get()); found != nativeSchemas.end()) return found->second;

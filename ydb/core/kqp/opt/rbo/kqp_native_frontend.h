@@ -19,7 +19,7 @@ struct TNativeIndex {
 };
 
 struct TNativeTable {
-    NFrontend::TCatalogTable Schema;
+    NFrontend::TCatalogSnapshot Schema;
     TRboTable Table;
     NYql::EStorageType Storage = NYql::EStorageType::RowStorage;
     TVector<TNativeUniqueConstraint> UniqueConstraints = {};

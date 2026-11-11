@@ -1,5 +1,6 @@
 #pragma once
 
+#include "catalog.h"
 #include "parser.h"
 
 #include <unordered_map>
@@ -7,12 +8,6 @@
 #include <variant>
 
 namespace NKikimr::NKqp::NFrontend {
-
-struct TCatalogColumn {
-    std::string Name;
-    TType Type;
-    bool operator==(const TCatalogColumn&) const = default;
-};
 
 // A checked scalar over an explicit row schema. Column IDs are schema ordinals,
 // independent of query IUs. Catalog expressions use this boundary before RBO.
@@ -44,36 +39,9 @@ private:
     std::variant<TType, TRows, TList> Value;
 };
 
-// A missing write schema identifies a catalog object that cannot be written
-// in this configuration. Storage keys and defaults belong to table metadata,
-// not scalar/parameter field types.
-enum class EColumnDefault : std::uint8_t { Literal, Sequence };
-
-struct TGeneratedColumn {
-    std::string Name;
-    std::string Expression;
-    bool Stored = true;
-};
-
 using TGeneratedValues = std::vector<std::pair<std::string, std::shared_ptr<const TRowExpression>>>;
 
-struct TWriteSchema {
-    std::vector<std::string> Keys;
-    std::vector<std::pair<std::string, EColumnDefault>> Defaults;
-    bool HasIndexes = false;
-    std::vector<TGeneratedColumn> GeneratedColumns = {};
-};
-
-struct TCatalogTable {
-    std::string Name;
-    std::vector<TCatalogColumn> Columns;
-    std::optional<TWriteSchema> WriteSchema = {};
-    // Catalog-specific explanation, consumed only when binding a write to an
-    // object without WriteSchema. Reads do not depend on write capabilities.
-    std::string WriteUnsupportedReason = {};
-};
-
-using TTableResolver = std::function<TCatalogTable(std::string_view, TSourcePosition)>;
+using TTableResolver = std::function<TCatalogSnapshot(std::string_view, TSourcePosition)>;
 using TRelId = std::uint32_t;
 inline constexpr TRelId NoRelation = std::numeric_limits<TRelId>::max();
 
