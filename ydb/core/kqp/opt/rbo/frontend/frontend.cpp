@@ -4,6 +4,7 @@
 #include "predicate.h"
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <limits>
@@ -1168,6 +1169,14 @@ private:
         std::vector<TScopeColumn> columns;
         columns.reserve(table.Columns.size());
         read.Columns.resize(table.Columns.size());
+        const auto requiredColumns = Program.Columns.size() + table.Columns.size();
+        if (requiredColumns > Program.Columns.capacity()) {
+            // Grow once for this source, retaining geometric capacity for later
+            // sources and projections instead of moving each intermediate prefix.
+            const auto capacity = std::bit_ceil(requiredColumns);
+            Program.Columns.reserve(capacity);
+            ColumnOrigins.reserve(capacity);
+        }
         // Allocate source identities in the existing importer's lexical order.
         // CBO's ordered join keys consume these identities. Visible bindings
         // retain catalog order independently, including SELECT * and aliases.
