@@ -11,6 +11,7 @@ TRboTable MakeRboTable(const NYql::TKikimrTableMetadata& metadata) {
     auto table = MakeRboTableIdentity(metadata);
     {
         auto columns = std::make_shared<TRboTable::TColumns>();
+        columns->reserve(metadata.Columns.size());
         for (const auto& [name, column] : metadata.Columns) {
             auto type = NFrontend::ParseType(std::string_view(column.Type.data(), column.Type.size()));
             type.OptionalDepth = !column.NotNull;

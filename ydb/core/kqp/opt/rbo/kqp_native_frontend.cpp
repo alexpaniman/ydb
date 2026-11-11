@@ -171,6 +171,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         auto table = resolve(relation.Table, relation.Position);
         if (!table.Table) throw NFrontend::TFrontendError(relation.Position, "table resolver returned no table identity");
         auto columns = std::make_shared<TRboTable::TColumns>();
+        columns->reserve(table.Schema.Columns.size());
         for (const auto& column : table.Schema.Columns) columns->emplace(String(column.Name), column.Type);
         table.Table.NativeColumns = std::move(columns);
         tables.emplace(relation.Table, std::move(table));
