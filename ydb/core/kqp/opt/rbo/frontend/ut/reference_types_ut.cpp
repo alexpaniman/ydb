@@ -62,6 +62,48 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(CaseBetweenAndIn) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            for (const auto& [sql, type, value] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view>>{
+                    {"CASE WHEN TRUE THEN 1 ELSE 2l END", "Int64", "1"},
+                    {"CASE 1 WHEN 1 THEN 'yes' WHEN 2 THEN 'two' ELSE 'no' END", "String", "yes"},
+                    {"CASE WHEN Just(TRUE) THEN 1 ELSE 2 END", "Int32", "1"},
+                    {"CASE WHEN NULL THEN 1 ELSE 2 END", "Int32", "2"},
+                    {"2 BETWEEN 1 AND 3", "Bool", "true"},
+                    {"2 NOT BETWEEN SYMMETRIC 3 AND 1", "Bool", "false"},
+                    {"2 IN (1, 2, 3)", "Bool", "true"}, {"2 IN (2)", "Bool", "true"},
+                    {"2 NOT IN (1)", "Bool", "true"}, {"(1, 2) IN ((1, 2))", "Bool", "true"},
+                    {"2 NOT IN (1, 3)", "Bool", "true"}, {"2 IN COMPACT (1, NULL)", "Bool?", "NULL"}}) {
+                TFixture f; f.Settings.Parser = parser; f.Settings.Binding.AnsiIn = true;
+                try { f.Ok("SELECT " + std::string(sql)); }
+                catch (const TFrontendError& error) { UNIT_FAIL(sql << ": " << error.what()); }
+                f.Types({type});
+                UNIT_ASSERT_VALUES_EQUAL_C(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), value, sql);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(BetweenModesPreserveThreeValuedAndUnorderedSemantics) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const bool negate : {false, true})
+        for (const bool symmetric : {false, true}) {
+            const auto operation = std::string(negate ? " NOT BETWEEN " : " BETWEEN ") + (symmetric ? "SYMMETRIC " : "ASYMMETRIC ");
+            for (const auto& [value, low, high, expected] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view, std::string_view>>{
+                    {"2", "1", "3", "true"}, {"2", "3", "1", symmetric ? "true" : "false"},
+                    {"4", "1", "3", "false"}, {"NULL", "1", "3", "NULL"},
+                    {"2", "NULL", "3", "NULL"}, {"4", "NULL", "3", symmetric ? "NULL" : "false"}}) {
+                TFixture f; f.Settings.Parser = parser;
+                const auto sql = "SELECT " + std::string(value) + operation + std::string(low) + " AND " + std::string(high);
+                f.Ok(sql);
+                const auto wanted = expected == "NULL" ? expected : negate ? (expected == "true" ? "false" : "true") : expected;
+                UNIT_ASSERT_VALUES_EQUAL_C(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), wanted, sql);
+            }
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT CAST('nan' AS Double)" + operation + "1.0 AND 3.0");
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), "false");
+        }
+    }
+
     Y_UNIT_TEST(ResolvedColumnsPreserveSelfJoinIdentity) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

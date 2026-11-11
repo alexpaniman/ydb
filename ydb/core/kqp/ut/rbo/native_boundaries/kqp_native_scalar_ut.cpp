@@ -5,6 +5,20 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(BetweenModesExecuteWithoutSemanticLowering) {
+        for (const auto parser : {NFrontend::EParser::Handwritten, NFrontend::EParser::Grammar})
+        for (const auto* operation : {" BETWEEN ", " NOT BETWEEN ", " BETWEEN SYMMETRIC ", " NOT BETWEEN SYMMETRIC "})
+        for (const auto* value : {"0.0", "2.0", "4.0", "NULL", "CAST('nan' AS Double)"})
+        for (const auto* bounds : {"1.0 AND 3.0", "3.0 AND 1.0", "NULL AND 3.0", "1.0 AND NULL"}) {
+            const auto sql = std::string("SELECT ") + value + operation + bounds;
+            NFrontend::TCompilerSettings settings; settings.Parser = parser;
+            auto compiled = NFrontend::CompileNative(sql, {}, settings);
+            const auto& program = compiled.Program->Get();
+            CheckScalar(program.Expressions, NTests::Projection(program), sql);
+        }
+        CheckScalar("SELECT 2 IN COMPACT (1, NULL)");
+    }
+
     Y_UNIT_TEST(ScalarMinMaxAndListMetadataEmitTerminalOperations) {
         for (const auto* sql : {
             "SELECT ListLength([1, 2])", "SELECT ListLength([])", "SELECT ListLength(NULL)",

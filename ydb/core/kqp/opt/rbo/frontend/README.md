@@ -45,6 +45,10 @@ semantics. Preparation preserves evaluation order: for example, the left operand
 of AND keeps its FALSE-versus-NULL distinction because that controls evaluation
 of the right operand. Nullable membership bounds become visible to the existing
 range rules without a YQL scalar rewrite or a change to range-selection policy.
+`BETWEEN` binds to native comparisons with SQL three-valued logic. Its symmetric
+form checks both bound orders; its negated form uses the opposite comparisons,
+preserving the existing SQL behavior for NaN. `IN COMPACT` uses native membership
+evaluation, with the same NULL semantics as `IN`.
 
 `PrepareExecution` owns statement dependencies and shared producers. A single
 result without named producers needs no scheduling graph. Other programs retain

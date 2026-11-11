@@ -721,9 +721,16 @@ private:
                 if (op == "IS") Expect("NULL");
                 left = Add(ESyntaxKind::Unary, pos, notNull ? "IS NOT NULL" : "IS NULL", {left});
             } else if (op == "BETWEEN") {
+                const bool symmetric = Take("SYMMETRIC");
+                if (!symmetric) Take("ASYMMETRIC");
                 auto low = Expression(precedence + 1); Expect("AND"); auto high = Expression(precedence + 1);
-                left = Add(ESyntaxKind::Between, pos, {}, {left, low, high});
+                left = Add(ESyntaxKind::Between, pos, symmetric ? (negate ? "NOT BETWEEN SYMMETRIC" : "BETWEEN SYMMETRIC")
+                    : (negate ? "NOT BETWEEN" : "BETWEEN"), {left, low, high});
+                negate = false;
             } else if (op == "IN") {
+                // The native scalar backend owns membership evaluation; this
+                // legacy execution hint does not change its value semantics.
+                Take("COMPACT");
                 if (!Is("[") && !Is("(")) {
                     if (!Is("$")) throw TUnsupportedFeature(EFeature::Syntax, pos, "IN expression requires the grammar parser");
                     const auto collection = Expression(precedence + 1);

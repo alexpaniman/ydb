@@ -398,8 +398,9 @@ private:
                 return Add(ESyntaxKind::Unary, condition, negate || Has(condition, "NOTNULL") ? "IS NOT NULL" : "IS NULL", {left});
             }
             if (Has(condition, "BETWEEN")) {
-                if (Has(condition, "SYMMETRIC")) Unsupported(condition, EFeature::Expression, "BETWEEN SYMMETRIC");
-                left = Add(ESyntaxKind::Between, condition, {}, {left, Expr(arguments[0]), Expr(arguments[1])});
+                return Add(ESyntaxKind::Between, condition, Has(condition, "SYMMETRIC")
+                    ? (negate ? "NOT BETWEEN SYMMETRIC" : "BETWEEN SYMMETRIC") : (negate ? "NOT BETWEEN" : "BETWEEN"),
+                    {left, Expr(arguments[0]), Expr(arguments[1])});
             } else if (auto* in = Child(condition, "in_expr")) {
                 auto* lambda = Unwrap(in);
                 std::vector<TSyntaxId> args{left};

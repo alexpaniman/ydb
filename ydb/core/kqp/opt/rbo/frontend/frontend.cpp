@@ -2137,8 +2137,21 @@ private:
             }
             case ESyntaxKind::Between: {
                 auto value = Expr(syntax.Arguments[0], context), low = Expr(syntax.Arguments[1], context), high = Expr(syntax.Arguments[2], context);
-                auto a = arena.Binary(EOpcode::GreaterEqual, value, low, syntax.Position), b = arena.Binary(EOpcode::LessEqual, value, high, syntax.Position);
-                result = arena.Binary(EOpcode::And, a, b, syntax.Position); break;
+                // NOT BETWEEN uses the opposite comparisons, preserving the
+                // SQL translator's behavior for unordered floating-point values.
+                const bool negate = syntax.Text.starts_with("NOT ");
+                const auto lower = negate ? EOpcode::Less : EOpcode::GreaterEqual;
+                const auto upper = negate ? EOpcode::Greater : EOpcode::LessEqual;
+                const auto combine = negate ? EOpcode::Or : EOpcode::And;
+                auto a = arena.Binary(lower, value, low, syntax.Position), b = arena.Binary(upper, value, high, syntax.Position);
+                result = arena.Binary(combine, a, b, syntax.Position);
+                if (syntax.Text.ends_with(" SYMMETRIC")) {
+                    a = arena.Binary(lower, value, high, syntax.Position);
+                    b = arena.Binary(upper, value, low, syntax.Position);
+                    result = arena.Binary(negate ? EOpcode::And : EOpcode::Or, result,
+                        arena.Binary(combine, a, b, syntax.Position), syntax.Position);
+                }
+                break;
             }
             case ESyntaxKind::In: {
                 const auto namedQuery = syntax.Text == "collection" ? Bindings.QueryReference(syntax.Arguments.at(1)) : nullptr;
@@ -2725,6 +2738,7 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"manifest({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda","insert","upsert","replace","update","delete"],
+"predicates":["BETWEEN and NOT BETWEEN, including SYMMETRIC/ASYMMETRIC with three-valued and unordered comparison semantics; IN COMPACT uses native membership evaluation"],
 "scalar_extrema":["MinOf/MaxOf and Least/Greatest over comparable native scalars except extended temporal values; common types, NULL propagation and scalar NaN handling"],
 "scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; integral ListFromRange, flat scalar list casts using scalar conversion rules, String/Utf8 ListConcat, ListLength and ListHasItems; bounded constant materialization and lazy runtime ranges; not relational columns"],
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],

@@ -7,6 +7,20 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(BetweenModesAndCompactMembershipAgreeAcrossParsers) {
+        for (const auto* sql : {"SELECT 2 BETWEEN 1 AND 3", "SELECT 2 NOT BETWEEN 1 AND 3",
+                "SELECT 2 BETWEEN SYMMETRIC 3 AND 1", "SELECT 2 NOT BETWEEN SYMMETRIC 3 AND 1",
+                "SELECT 2 BETWEEN ASYMMETRIC 1 AND 3", "SELECT 2 NOT BETWEEN ASYMMETRIC 1 AND 3",
+                "SELECT 2 IN COMPACT (1, NULL)", "SELECT 2 NOT IN COMPACT [1, NULL]"}) {
+            UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)), sql);
+        }
+        for (const auto* sql : {"SELECT 2 BETWEEN SYMMETRIC ASYMMETRIC 1 AND 3",
+                "SELECT 2 BETWEEN SYMMETRIC 1", "SELECT 2 NOT BETWEEN ASYMMETRIC AND 3"}) {
+            UNIT_ASSERT_EXCEPTION_C(Parse(sql), TFrontendError, sql);
+            UNIT_ASSERT_EXCEPTION_C(ParseGrammar(sql), TFrontendError, sql);
+        }
+    }
+
     Y_UNIT_TEST(PragmaArgumentsRetainArityAndLiteralKinds) {
         for (const bool ansi : {false, true}) {
             TParseSettings settings; settings.AnsiQuotes = ansi;
