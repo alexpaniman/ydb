@@ -62,6 +62,35 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(ResolvedColumnsPreserveSelfJoinIdentity) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT l.id + r.id FROM t AS l JOIN t AS r ON l.id = r.id;");
+            f.Types({"Int64"});
+            auto& arena = f.Program.Expressions;
+            const auto root = f.Projection(0);
+            const auto& expression = arena[root];
+            UNIT_ASSERT(expression.Op == EOpcode::Add);
+            UNIT_ASSERT(arena[expression.Arguments.at(0)].Op == EOpcode::Column);
+            UNIT_ASSERT(arena[expression.Arguments.at(1)].Op == EOpcode::Column);
+            const auto left = arena[expression.Arguments.at(0)].ColumnId;
+            const auto right = arena[expression.Arguments.at(1)].ColumnId;
+            UNIT_ASSERT(left != right);
+            // As in the reference lambda-application test, the caller's actual
+            // input types determine nullability after rebinding.
+            const auto rebound = arena.RewriteColumns(root, [&](auto, auto id, auto type, auto position) {
+                return arena.Column(id, id == right ? type.Optional() : type, position);
+            });
+            UNIT_ASSERT(arena[rebound].Type == (TType{ETypeKind::Int64, true}));
+            TEvaluationContext context;
+            context.Column = [&](TColumnId id) {
+                UNIT_ASSERT(id == left || id == right);
+                return TValue{{ETypeKind::Int64, id == right}, std::int64_t{id == left ? 1 : 2}};
+            };
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, rebound, context)), "3");
+        }
+    }
+
     Y_UNIT_TEST(ScalarFunctionsUseSqlNames) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar})
         for (const auto& [sql, type, value] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view>>{
