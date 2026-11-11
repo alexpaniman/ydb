@@ -1152,12 +1152,14 @@ TType TExpressionArena::InternShape(std::span<const TType> items, std::span<cons
     std::size_t hash = items.size();
     unsigned depth = 1;
     bool nullable = false;
+    bool tupleOrderable = true;
     for (const auto item : items) {
         ValidateType(item, position);
         if (item.IsDocument()) throw TUnsupportedFeature(EFeature::Type, position, "JSON/YSON tuple states are outside the native scalar profile");
         if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
         if (item.IsCollection()) depth = std::max(depth, 1u + Shapes_[item.Shape - 1].Depth);
         nullable |= CanContainNull(item);
+        tupleOrderable &= Ordering(item) != EOrdering::Unsupported;
         const std::uint64_t bits = static_cast<unsigned>(item.Kind) | (std::uint64_t{item.OptionalDepth} << 8) |
             (std::uint64_t{item.Precision} << 16) | (std::uint64_t{item.Scale} << 24) | (std::uint64_t{item.Shape} << 32);
         hash ^= std::hash<std::uint64_t>{}(bits) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
@@ -1179,7 +1181,9 @@ TType TExpressionArena::InternShape(std::span<const TType> items, std::span<cons
     if (Shapes_.size() == std::numeric_limits<std::uint32_t>::max())
         throw TResourceLimitError(position, "Too many native collection shapes");
     const auto id = static_cast<std::uint32_t>(Shapes_.size() + 1);
-    Shapes_.push_back({{items.begin(), items.end()}, {names.begin(), names.end()}, static_cast<std::uint8_t>(depth), nullable, named});
+    const auto listOrdering = items.size() == 1 ? Ordering(items.front()) : EOrdering::Unsupported;
+    Shapes_.push_back({{items.begin(), items.end()}, {names.begin(), names.end()}, static_cast<std::uint8_t>(depth),
+        nullable, named, tupleOrderable, listOrdering});
     ShapeHashes_.emplace(hash, id);
     return {kind, false, 0, 0, id};
 }
@@ -1218,6 +1222,19 @@ bool TExpressionArena::CanContainNull(TType type) const {
     ValidateType(type);
     return type.OptionalDepth || type.Kind == K::Null ||
         (type.IsCollection() && Shapes_[type.Shape - 1].NullableItems);
+}
+
+TExpressionArena::EOrdering TExpressionArena::Ordering(TType type) const {
+    if (type.IsDocument() || type.Kind == K::Struct || type.Kind == K::Calendar) return EOrdering::Unsupported;
+    if (type.Kind == K::Null) return EOrdering::Null;
+    if (type.Kind == K::List) return Shapes_[type.Shape - 1].ListOrdering;
+    if (type.Kind == K::Tuple && !Shapes_[type.Shape - 1].TupleOrderable) return EOrdering::Unsupported;
+    return EOrdering::Supported;
+}
+
+bool TExpressionArena::SupportsOrdering(TType type) const {
+    ValidateType(type);
+    return Ordering(type) == EOrdering::Supported;
 }
 
 TType TExpressionArena::ListType(TType item, TSourcePosition position) {
@@ -1322,6 +1339,9 @@ TExprId TExpressionArena::Member(TExprId record, std::string_view name, TSourceP
     const auto index = static_cast<std::uint64_t>(found - names.begin());
     const auto item = StructItems(source)[index];
     const auto type = source.OptionalDepth ? item.Optional() : item;
+    // A constructed record is a set of independent fields. Selecting one
+    // must not evaluate discarded fields (including their checked errors).
+    if ((*this)[record].Op == O::Collection) return (*this)[record].Arguments[index];
     return Append({O::Member, type, position, {record}, index, std::string(name), 0});
 }
 

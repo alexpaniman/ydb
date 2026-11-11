@@ -30,6 +30,11 @@ std::string Lower(std::string_view value) {
     return result;
 }
 
+void CheckColumnProfile(std::string_view name, TSourcePosition position) {
+    if (name.starts_with("_yql_"))
+        throw TUnsupportedFeature(EFeature::Backend, position, "system columns are outside native-read-v1");
+}
+
 void CheckFunctionProfile(std::string_view name, TSourcePosition position) {
     // Unavailable aggregates must be rejected before their row arguments
     // are resolved in the post-aggregation scope.
@@ -465,6 +470,11 @@ struct TStringHash {
 
 class TScope {
 public:
+    struct TPath {
+        const TScopeColumn* Column = nullptr;
+        std::size_t Members = 0;
+        bool Shadowed = false;
+    };
     TScope() = default;
     // A read scope can share the immutable snapshot's lexical column order.
     // The snapshot outlives all binding scopes; column names and ordinals stay
@@ -517,11 +527,22 @@ public:
         const auto index = FindIndex(name);
         return index == Missing || index == Ambiguous ? nullptr : &Columns[index];
     }
-    bool ShadowsQualifier(std::string_view name) const {
-        const auto dot = name.rfind('.');
-        if (dot == name.npos) return false;
-        const auto qualifier = name.substr(0, dot);
-        return MixedQualifiers ? Qualifiers.contains(qualifier) : !Columns.empty() && qualifier == Columns.front().Qualifier;
+    bool HasQualifier(std::string_view name) const {
+        return MixedQualifiers ? Qualifiers.contains(name) : !Columns.empty() && name == Columns.front().Qualifier;
+    }
+    TPath FindPath(std::string_view name, std::span<const std::uint32_t> separators,
+        TSourcePosition pos, bool diagnose = true) const {
+        const auto first = name.substr(0, separators.empty() ? name.size() : separators.front());
+        const bool qualified = !separators.empty() && HasQualifier(first);
+        const auto end = qualified && separators.size() > 1 ? separators[1] :
+            qualified ? name.size() : first.size();
+        if (diagnose) CheckColumnProfile(qualified ? name.substr(first.size() + 1, end - first.size() - 1) : first, pos);
+        // Preserve the existing ambiguity between a qualified column and a
+        // literal dotted column. Member boundaries still come from syntax.
+        const auto index = qualified ? FindIndex(name.substr(0, end)) : FindName(first);
+        if (index == Ambiguous && diagnose) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
+        return {index == Missing || index == Ambiguous ? nullptr : &Columns[index], qualified ? 1u : 0u,
+            qualified || index == Ambiguous};
     }
 
     std::vector<TColumnId> Ids() const {
@@ -597,8 +618,16 @@ std::vector<std::string> ProjectionNames(const TSelect& query, const TParsedQuer
         }
         auto& name = result[i];
         name = projection.Alias;
-        if (name.empty() && expression.Kind == ESyntaxKind::Column)
-            name = query.Joins.empty() ? expression.Text.substr(expression.Text.find_last_of('.') + 1) : expression.Text;
+        if (name.empty() && expression.Kind == ESyntaxKind::Column) {
+            const auto separators = syntax.NameSeparators(expression);
+            // A struct member is a computed expression, so its default name
+            // follows the same columnN convention as a postfix Member node.
+            bool member = separators.size() > 1;
+            if (separators.size() == 1 && !scope.HasQualifier(std::string_view(expression.Text).substr(0, separators.front())))
+                member = scope.FindPath(expression.Text, separators, expression.Position, false).Column != nullptr;
+            if (!member)
+                name = query.Joins.empty() && !separators.empty() ? expression.Text.substr(separators.back() + 1) : expression.Text;
+        }
         if (!name.empty()) {
             auto [entry, inserted] = names.try_emplace(name, true);
             if (!inserted && entry->second) throw TFrontendError(expression.Position, "duplicate output column: " + name);
@@ -666,8 +695,17 @@ public:
         TSyntaxKey key{node.Kind, normalize ? Lower(node.Text) : node.Text, {}, node.Distinct, Bindings[id], node.Query.get(), Windows[id]};
         key.Options = Bindings.Flags(id);
         if (node.Lambda) key.Binding = id;
-        if (node.Kind == ESyntaxKind::Column) if (const auto* column = Scope.FindUnambiguous(node.Text)) {
-            key.Text.clear(); key.Binding = column->Id;
+        if (node.Kind == ESyntaxKind::Column) {
+            const auto separators = Syntax.NameSeparators(node);
+            const auto path = Scope.FindPath(node.Text, separators, node.Position, false);
+            std::size_t begin = 0, member = 0;
+            if (path.Column) {
+                key.Binding = path.Column->Id;
+                member = path.Members;
+                begin = member < separators.size() ? separators[member++] + 1 : node.Text.size();
+                key.Text = node.Text.substr(begin);
+            }
+            for (; member < separators.size(); ++member) key.Arguments.push_back(separators[member] - begin);
         }
         for (const auto argument : node.Arguments) key.Arguments.push_back(Get(argument));
         if (node.Filter != NoSyntax) key.Filter = Get(node.Filter);
@@ -960,23 +998,36 @@ private:
     TExprId Access(const TScopeColumn& column, TSourcePosition pos) {
         return Program.Expressions.Column(column.Id, column.Type, pos);
     }
-    std::optional<TScopeColumn> ResolveColumn(TExprContext& context, std::string_view name, TSourcePosition pos) {
-        if (const auto* column = context.Scope.Find(name, pos)) return *column;
-        if (context.Scope.ShadowsQualifier(name) ||
-            (context.Aggregation && context.Aggregation->Source->Scope.Find(name, pos)))
-            throw TFrontendError(pos, "unknown or ungrouped column: " + std::string(name));
+    struct TResolvedPath { TScopeColumn Column; std::size_t Members; };
+    std::optional<TResolvedPath> ResolveColumn(TExprContext& context, const TSyntaxExpr& syntax) {
+        const auto separators = Syntax.NameSeparators(syntax);
+        const auto path = context.Scope.FindPath(syntax.Text, separators, syntax.Position);
+        if (path.Column) return TResolvedPath{*path.Column, path.Members};
+        if (path.Shadowed || (context.Aggregation &&
+                context.Aggregation->Source->Scope.FindPath(syntax.Text, separators, syntax.Position).Column))
+            throw TFrontendError(syntax.Position, "unknown or ungrouped column: " + syntax.Text);
         if (!context.Outer) return {};
-        const auto outer = ResolveColumn(*context.Outer, name, pos);
+        const auto outer = ResolveColumn(*context.Outer, syntax);
         if (!outer) return {};
-        if (context.Aggregation) throw TUnsupportedFeature(EFeature::Subquery, pos,
+        if (context.Aggregation) throw TUnsupportedFeature(EFeature::Subquery, syntax.Position,
             "outer references after aggregation require explicit grouping in the native profile");
         auto& captures = context.CaptureOwner ? *context.CaptureOwner : context;
-        auto [it, inserted] = captures.Captured.try_emplace(outer->Id);
+        const auto& column = outer->Column;
+        auto [it, inserted] = captures.Captured.try_emplace(column.Id);
         if (inserted) {
-            it->second = Column(outer->Name, outer->Qualifier, outer->Type, pos);
-            captures.PendingCaptures.push_back({it->second, outer->Id});
+            it->second = Column(column.Name, column.Qualifier, column.Type, syntax.Position);
+            captures.PendingCaptures.push_back({it->second, column.Id});
         }
-        return ScopeColumn(it->second);
+        return TResolvedPath{ScopeColumn(it->second), outer->Members};
+    }
+    TExprId AccessMembers(TExprId value, const TSyntaxExpr& syntax, std::size_t member) {
+        const auto separators = Syntax.NameSeparators(syntax);
+        for (; member < separators.size(); ++member) {
+            const auto begin = separators[member] + 1;
+            const auto end = member + 1 < separators.size() ? separators[member + 1] : syntax.Text.size();
+            value = Program.Expressions.Member(value, std::string_view(syntax.Text).substr(begin, end - begin), syntax.Position);
+        }
+        return value;
     }
     TRelId BindInput(TRelId input, TExprContext& context, TSourcePosition pos) {
         if (!context.PendingCaptures.empty()) {
@@ -1650,7 +1701,9 @@ private:
         context.Aliases = &outputScope;
         for (const auto& key : query.OrderBy) {
             const auto& syntax = Syntax.Expressions[key.Expression];
-            const TScopeColumn* alias = syntax.Kind == ESyntaxKind::Column ? outputScope.Find(syntax.Text, syntax.Position) : nullptr;
+            const auto separators = Syntax.NameSeparators(syntax);
+            const auto path = syntax.Kind == ESyntaxKind::Column ? outputScope.FindPath(syntax.Text, separators, syntax.Position) : TScope::TPath{};
+            const TScopeColumn* alias = path.Members == separators.size() ? path.Column : nullptr;
             if (alias) sort.push_back({alias->Id, key.Descending, !key.Descending || !alias->Type.OptionalDepth});
             else {
                 auto expr = Expr(key.Expression, context);
@@ -2040,7 +2093,11 @@ private:
             const auto& arg = Syntax.Expressions[argument];
             const TScopeColumn* column = nullptr;
             if (auto it = grouping.Groups.find(grouping.Identity->Get(argument)); it != grouping.Groups.end()) column = &it->second;
-            else if (arg.Kind == ESyntaxKind::Column) column = context.Scope.Find(arg.Text, arg.Position);
+            else if (arg.Kind == ESyntaxKind::Column) {
+                const auto separators = Syntax.NameSeparators(arg);
+                const auto path = context.Scope.FindPath(arg.Text, separators, arg.Position);
+                if (path.Members == separators.size()) column = path.Column;
+            }
             if (!column || !grouping.GroupSources.contains(column->Id)) throw TFrontendError(arg.Position, "GROUPING argument is not a grouping key");
             if (grouping.GroupingSets.empty()) continue;
             const auto source = grouping.GroupSources.at(column->Id);
@@ -2228,15 +2285,20 @@ private:
         TDepth depth(*this, syntax.Position);
         CheckSize(syntax.Position);
         if (syntax.Kind == ESyntaxKind::Column && context.ProjectionAliases) {
-            if (const auto found = context.ProjectionAliases->find(syntax.Text); found != context.ProjectionAliases->end()) {
+            const auto separators = Syntax.NameSeparators(syntax);
+            const auto base = syntax.Text.substr(0, separators.empty() ? syntax.Text.size() : separators.front());
+            if (const auto found = context.ProjectionAliases->find(base); found != context.ProjectionAliases->end()) {
+                CheckColumnProfile(base, syntax.Position);
                 if (found->second.HasWindow) throw TFrontendError(syntax.Position, "window expressions are not allowed in HAVING");
-                context.Cache.emplace(id, found->second.Expression);
-                return found->second.Expression;
+                const auto result = AccessMembers(found->second.Expression, syntax, 0);
+                context.Cache.emplace(id, result);
+                return result;
             }
         }
         if (syntax.Kind == ESyntaxKind::Column && context.Aliases) {
-            if (const auto* alias = context.Aliases->Find(syntax.Text, syntax.Position)) {
-                const auto result = Access(*alias, syntax.Position);
+            const auto path = context.Aliases->FindPath(syntax.Text, Syntax.NameSeparators(syntax), syntax.Position);
+            if (path.Column) {
+                const auto result = AccessMembers(Access(*path.Column, syntax.Position), syntax, path.Members);
                 context.Cache.emplace(id, result);
                 return result;
             }
@@ -2271,12 +2333,16 @@ private:
                 result = arena.Literal({syntax.Kind == ESyntaxKind::JsonString ? ETypeKind::Json : ETypeKind::Yson}, syntax.Text, syntax.Position);
                 break;
             case ESyntaxKind::Column: {
-                const auto column = ResolveColumn(context, syntax.Text, syntax.Position);
+                const auto column = ResolveColumn(context, syntax);
                 if (!column) {
                     throw TFrontendError(syntax.Position, "unknown or ungrouped column: " + syntax.Text);
                 }
-                result = Access(*column, syntax.Position); break;
+                result = AccessMembers(Access(column->Column, syntax.Position), syntax, column->Members); break;
             }
+            case ESyntaxKind::Member:
+                result = arena.Member(Expr(syntax.Arguments.at(0), context), syntax.Text, syntax.Position); break;
+            case ESyntaxKind::Named:
+                throw TFrontendError(syntax.Position, "named arguments require AsStruct");
             case ESyntaxKind::Variable: {
                 const auto binding = Bindings[id];
                 if (binding == TGlobalBindings::Parameter) {
@@ -2453,6 +2519,18 @@ private:
                 }
                 if (name == "grouping") { result = Grouping(syntax, context); break; }
                 if (syntax.Distinct) throw TFrontendError(syntax.Position, "DISTINCT requires an aggregate function");
+                if (name == "asstruct") {
+                    std::vector<std::pair<std::string, TExprId>> fields;
+                    fields.reserve(syntax.Arguments.size());
+                    for (const auto arg : syntax.Arguments) {
+                        const auto& field = Syntax.Expressions[arg];
+                        if (field.Kind != ESyntaxKind::Named)
+                            throw TFrontendError(field.Position, "AsStruct requires named arguments");
+                        fields.emplace_back(field.Text, Expr(field.Arguments.at(0), context));
+                    }
+                    result = arena.Struct(fields, syntax.Position);
+                    break;
+                }
                 if (name == "nothing") {
                     if (syntax.Arguments.size() != 1)
                         throw TUnsupportedFeature(EFeature::Type, syntax.Position, "Nothing requires an explicit optional type");
@@ -2681,12 +2759,22 @@ namespace {
 
 void CheckSyntax(const TParsedQuery& syntax) {
     for (const auto& node : syntax.Expressions) {
+        if (node.NamePath) {
+            const auto offset = node.NamePath;
+            if (node.Kind != ESyntaxKind::Column || offset > syntax.NamePaths.size() ||
+                syntax.NamePaths[offset - 1] > syntax.NamePaths.size() - offset)
+                throw TFrontendError(node.Position, "invalid parsed name path");
+            std::size_t previous = 0;
+            for (const auto separator : syntax.NameSeparators(node)) {
+                if (separator < previous || separator >= node.Text.size() || node.Text[separator] != '.')
+                    throw TFrontendError(node.Position, "invalid parsed name separator");
+                previous = separator + 1;
+            }
+        }
         if (node.Kind == ESyntaxKind::Case && node.Text == "implicit_else")
             throw TFrontendError(node.Position, "CASE requires explicit ELSE");
         if (node.Kind == ESyntaxKind::Real && (node.Text.ends_with('p') || node.Text.ends_with('P')))
             throw TUnsupportedFeature(EFeature::Type, node.Position, "PostgreSQL numeric literals are outside native-read-v1");
-        if (node.Kind == ESyntaxKind::Column && node.Text.substr(node.Text.find_last_of('.') + 1).starts_with("_yql_"))
-            throw TUnsupportedFeature(EFeature::Backend, node.Position, "system columns are outside native-read-v1");
         if (node.Kind == ESyntaxKind::Binary &&
             (node.Text == "+" || node.Text == "-" || node.Text == "*" || node.Text == "/" || node.Text == "%" || node.Text == "||")) {
             for (auto arg : node.Arguments) if (syntax.Expressions[arg].Kind == ESyntaxKind::Null)
@@ -2972,6 +3060,7 @@ TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatal
         catch (const TFrontendError&) { return ParseGrammarExpression(sql, settings); }
     }();
     TParsedQuery syntax{std::move(parsed.Expressions), {}};
+    syntax.NamePaths = std::move(parsed.NamePaths);
     CheckSyntax(syntax);
     for (const auto& node : syntax.Expressions) {
         if (node.Kind == ESyntaxKind::Variable || (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')))

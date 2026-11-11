@@ -154,6 +154,9 @@ public:
     TType ImportType(const TExpressionArena& source, TType type);
     void ValidateType(TType type, TSourcePosition position = {}) const;
     bool CanContainNull(TType type) const;
+    // Whether ordering two values can produce a Boolean (possibly nullable).
+    // Structs/documents are unordered; Null and List<Null> compare only to NULL.
+    bool SupportsOrdering(TType type) const;
 
     TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
     // Struct shapes and values use lexical field order, independent of the
@@ -232,6 +235,8 @@ public:
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:
+    enum class EOrdering : std::uint8_t { Unsupported, Null, Supported };
+    EOrdering Ordering(TType type) const;
     TType InternShape(std::span<const TType> items, std::span<const std::string> names,
         bool named, TSourcePosition position);
     TType ParseTypeName(std::string_view name, TSourcePosition position, unsigned depth);
@@ -244,6 +249,10 @@ private:
         std::uint8_t Depth;
         bool NullableItems;
         bool Named;
+        // Tuple and List share unnamed shapes. Their comparison contracts
+        // differ for a Null item, so retain both results at interning time.
+        bool TupleOrderable;
+        EOrdering ListOrdering;
     };
     std::vector<TShape> Shapes_;
     std::unordered_multimap<std::size_t, std::uint32_t> ShapeHashes_;

@@ -68,6 +68,20 @@ belong to the resulting query; the caller's arena need not survive compilation.
 Unused values are not imported, and ordinary SQL has no external binding map.
 This interface accepts no backend nodes or unresolved runtime parameters.
 
+Named struct values use the same native arena as tuples and lists. Their
+interned shapes retain canonical field names and types through imports,
+rewrites and folding. Both parsers preserve named constructor operands and
+identifier separators, so binding never splits quoted field text. Scope
+resolution identifies the base column before member typing and correlation
+capture; operator translation receives ordinary typed scalar expressions.
+Selecting a field from a constructed struct returns that field's expression,
+without evaluating discarded fields. Runtime records retain typed member
+access, including optional records and nullable fields. Backend struct types,
+`AsStruct` and `Member` nodes are created only at terminal emission.
+Shapes also cache ordering capability. Scalar-subquery construction keeps the
+existing `min`/`some` choice using that native property, including records and
+collections containing records, without consulting backend type annotations.
+
 `CompileRowExpression` parses catalog scalar SQL through the same expression
 grammar and binder against an explicit row schema. It checks and folds native
 expressions without query bindings or table access. Generated write columns
@@ -340,7 +354,8 @@ including nullable fields and empty structs. Source field names survive aliases,
 pruning and copying. Separately, scalar List parameters and fixed tuple/list
 constructors support IN membership. Dynamic list membership uses checked key
 conversion and explicit ANSI/legacy NULL semantics; it emits typed dictionary
-operations rather than a `SqlIn` macro. Collections cannot be relational columns.
+operations rather than a `SqlIn` macro. Declared row-source fields currently use
+flat scalar types; native struct expressions can be projected as values.
 Integral `ListFromRange`, flat scalar list casts, `ListLength`, `ListHasItems` and String/Utf8 `ListConcat`
 are native scalar operations. List casts use the scalar conversion rules and
 discard failed required elements, while optional items retain NULL. Optional

@@ -14,6 +14,30 @@ using TItem = std::pair<std::string, TExprId>;
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeStructs) {
+    Y_UNIT_TEST(OrderingCapabilitiesFollowNestedNativeShapes) {
+        TExpressionArena arena;
+        const TField fields[]{{"k", {K::Int64}}};
+        auto record = arena.StructType(fields);
+        UNIT_ASSERT(!arena.SupportsOrdering(record));
+        UNIT_ASSERT(!arena.SupportsOrdering(record.Optional()));
+        UNIT_ASSERT(arena.SupportsOrdering({K::Int64, true}));
+        UNIT_ASSERT(!arena.SupportsOrdering({K::Null}));
+        UNIT_ASSERT(!arena.SupportsOrdering(arena.ListType({K::Null})));
+        const TType nullItems[]{TType{K::Null}, arena.ListType({K::Null})};
+        UNIT_ASSERT(arena.SupportsOrdering(arena.TupleType(nullItems)));
+        UNIT_ASSERT(arena.SupportsOrdering(arena.TupleType({})));
+        // Repeated shared nested shapes must not require recursive traversal
+        // when the scalar-subquery rule asks about their capability.
+        for (unsigned depth = 0; depth < 32; ++depth) {
+            const TType items[]{record, record};
+            record = arena.TupleType(items);
+            UNIT_ASSERT(!arena.SupportsOrdering(record));
+            UNIT_ASSERT(!arena.SupportsOrdering(arena.ListType(record)));
+        }
+        TExpressionArena imported;
+        UNIT_ASSERT(!imported.SupportsOrdering(imported.ImportType(arena, record)));
+    }
+
     Y_UNIT_TEST(NamesAndTypesDefineCanonicalShapes) {
         TExpressionArena arena;
         const TField fields[]{{"z", {K::String}}, {"some`field", {K::Int32}}};

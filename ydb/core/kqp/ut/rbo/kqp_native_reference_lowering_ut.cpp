@@ -3,6 +3,7 @@
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h>
 
+#include <algorithm>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -63,6 +64,58 @@ struct TFixture : NTests::TIdTestContext {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
+    Y_UNIT_TEST(ScalarSubqueryValueSelectionPreservesTypePolicy) {
+        const std::pair<const char*, const char*> cases[]{
+            {"AsStruct(id AS k)", "some"},
+            {"AsTuple(AsStruct(id AS k), id)", "some"},
+            {"[AsStruct(id AS k)]", "some"},
+            {"NULL", "some"},
+            {"[NULL]", "some"},
+            {"AsTuple(NULL, id)", "min"},
+            {"id", "min"},
+            {"[id]", "min"},
+        };
+        for (const auto& [expression, expected] : cases) {
+            TFixture f;
+            auto root = f.Run(TStringBuilder() << "SELECT (SELECT " << expression << " FROM t) AS value;");
+            UNIT_ASSERT(f.Recompute(*root) == IGraphTransformer::TStatus::Ok);
+            const auto nodes = f.ExprCtx.NodeAllocationCounter;
+            const auto types = f.ExprCtx.TypeNodes.size();
+            TVector<std::unique_ptr<IRule>> rules;
+            rules.emplace_back(std::make_unique<TInlineScalarSubplanRule>());
+            TRuleBasedStage("native scalar value selection", std::move(rules)).RunStage(*root, f.RboCtx);
+            UNIT_ASSERT(f.Recompute(*root) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+            const auto aggregates = f.Find(*root, EOperator::Aggregate);
+            UNIT_ASSERT_VALUES_EQUAL_C(aggregates.size(), 1, expression);
+            const auto& traits = CastOperator<TOpAggregate>(*aggregates.front()).GetAggregationTraits();
+            unsigned values = 0;
+            for (const auto& [id, trait] : traits.Items()) {
+                if (trait.AggFunction == "count") continue;
+                UNIT_ASSERT_VALUES_EQUAL_C(trait.AggFunction, expected, expression);
+                ++values;
+            }
+            UNIT_ASSERT_VALUES_EQUAL(values, 1);
+        }
+    }
+
+    Y_UNIT_TEST(NamedStructsRemainNativeThroughOperatorTyping) {
+        for (const auto* sql : {
+                "SELECT AsStruct(id AS k, value AS v) AS record FROM t;",
+                "SELECT AsStruct(id AS k).k AS id FROM t;",
+                "SELECT s.r._yql_field AS id FROM (SELECT AsStruct(id AS _yql_field) AS r FROM t) AS s;"}) {
+            TFixture f;
+            auto root = f.Run(sql);
+            UNIT_ASSERT_C(f.Recompute(*root) == IGraphTransformer::TStatus::Ok,
+                TString(sql) + f.ExprCtx.IssueManager.GetIssues().ToString());
+            const auto& columns = root->GetColumns().Items();
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), 1);
+            const auto type = root->GetInput()->GetNativeIUType(columns[0].first);
+            UNIT_ASSERT(type.Kind == (columns[0].second == "record" ? NFrontend::ETypeKind::Struct : NFrontend::ETypeKind::Int64));
+        }
+    }
+
     Y_UNIT_TEST(DoesNotResetCallerCompilationStages) {
         TFixture f;
         f.ExprCtx.Step.Done(TExprStep::LoadTablesMetadata);
@@ -253,7 +306,22 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
         for (const auto id : read->GetColumns()) {
             storedNames.push_back(root->PlanProps.InfoUnitRegistry.Get(id).GetColumnName());
         }
-        UNIT_ASSERT_VALUES_EQUAL(storedNames, (TVector<TString>{"id", "value", "a"}));
+        // Read columns are an unordered IU set; aliases follow catalog order.
+        std::sort(storedNames.begin(), storedNames.end());
+        UNIT_ASSERT_VALUES_EQUAL(storedNames, (TVector<TString>{"a", "id", "value"}));
+        TVector<std::pair<TString, TString>> aliases;
+        for (auto* op : f.Find(*root, EOperator::Map)) {
+            const auto& elements = CastOperator<TOpMap>(*op).GetMapElements();
+            for (const auto id : elements.Keys()) {
+                const auto source = elements.At(id).GetExpression().GetColumnId();
+                if (source && read->GetColumns().Contains(*source))
+                    aliases.emplace_back(root->PlanProps.InfoUnitRegistry.Get(id).GetColumnName(),
+                        root->PlanProps.InfoUnitRegistry.Get(*source).GetColumnName());
+            }
+        }
+        std::sort(aliases.begin(), aliases.end());
+        UNIT_ASSERT_VALUES_EQUAL(aliases, (TVector<std::pair<TString, TString>>{
+            {"count", "a"}, {"key", "id"}, {"label", "value"}}));
     }
 
     // Presentation ordering is separate from catalog order; DISTINCT must emit

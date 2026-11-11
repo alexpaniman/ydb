@@ -306,7 +306,7 @@ public:
     TParsedExpression RunExpression() {
         const auto root = Expression();
         if (!End()) Fail("expected end of expression");
-        return {std::move(Result.Expressions), root};
+        return {std::move(Result.Expressions), root, std::move(Result.NamePaths)};
     }
 
 private:
@@ -348,7 +348,7 @@ private:
         if (Result.Expressions.size() >= Settings.MaxNodes || Result.Expressions.size() >= NoSyntax)
             throw TResourceLimitError(pos, "expression limit exceeded");
         const auto id = static_cast<TSyntaxId>(Result.Expressions.size());
-        Result.Expressions.push_back({kind, pos, std::move(text), std::move(args), {}, false});
+        Result.Expressions.push_back({kind, 0, pos, std::move(text), std::move(args), {}, false});
         return id;
     }
     bool CanAlias() const {
@@ -784,16 +784,22 @@ private:
     TSyntaxId Expression(int minimum = 1) {
         TDepth depth(*this);
         auto left = Primary();
-        while (Is("[") || Is("(")) {
+        while (Is("[") || Is("(") || Is(".")) {
             const auto position = Token().Position;
-            if (Take("[")) {
+            if (Take(".")) {
+                auto name = Identifier();
+                auto& value = Result.Expressions[left];
+                if (value.Kind == ESyntaxKind::Column)
+                    Result.AppendNamePart(value.Text, value.NamePath, name, position);
+                else left = Add(ESyntaxKind::Member, position, std::move(name), {left});
+            } else if (Take("[")) {
                 const auto index = Expression(); Expect("]");
                 left = Add(ESyntaxKind::Index, position, {}, {left, index});
             } else {
                 Expect("(");
                 std::vector<TSyntaxId> args{left};
                 if (!Take(")")) {
-                    do { args.push_back(Expression()); } while (Take(",") && !Is(")"));
+                    do { args.push_back(CallArgument()); } while (Take(",") && !Is(")"));
                     Expect(")");
                 }
                 const auto& callee = Result.Expressions[left];
@@ -927,6 +933,13 @@ private:
         return result;
     }
 
+    TSyntaxId CallArgument() {
+        const auto value = Expression();
+        if (!Take("AS")) return value;
+        const auto position = Token().Position;
+        return Add(ESyntaxKind::Named, position, Identifier(), {value});
+    }
+
     TSyntaxId Primary() {
         const auto& token = Token();
         const auto pos = token.Position;
@@ -1028,20 +1041,25 @@ private:
         }
         const bool variable = Take("$");
         std::string name = Identifier(variable || Is("::", 1) ? GeneralIdentifier : ExprIdentifier);
+        std::uint32_t path = 0;
         if (!variable) {
             if (Take("::")) name += "::" + Identifier();
             while (Take(".")) {
-                name += "." + Identifier();
+                Result.AppendNamePart(name, path, Identifier(), pos);
             }
         }
-        if (!Take("(")) return Add(variable ? ESyntaxKind::Variable : ESyntaxKind::Column, pos, std::move(name));
+        if (!Take("(")) {
+            const auto id = Add(variable ? ESyntaxKind::Variable : ESyntaxKind::Column, pos, std::move(name));
+            Result.Expressions[id].NamePath = path;
+            return id;
+        }
         const bool distinct = Take("DISTINCT");
         const bool quantified = distinct || Take("ALL");
         std::vector<TSyntaxId> args;
         if (Take("*")) {
             if (quantified) Fail("invalid star argument");
             args.push_back(Add(ESyntaxKind::Star, Tokens[Index - 1].Position)); Expect(")");
-        } else if (!Take(")")) { do { args.push_back(Expression()); } while (Take(",") && !Is(")")); Expect(")"); }
+        } else if (!Take(")")) { do { args.push_back(CallArgument()); } while (Take(",") && !Is(")")); Expect(")"); }
         if (quantified && args.empty()) Fail("set quantifier requires an argument");
         for (auto arg : args) if (Result.Expressions[arg].Kind == ESyntaxKind::Star &&
             (quantified || args.size() != 1 || !Result.Expressions[arg].Text.empty())) Fail("invalid star argument");
@@ -1119,6 +1137,35 @@ TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
 
 TParsedQuery Parse(std::string_view sql, const TParseSettings& settings) {
     return TParser(sql, settings).Run();
+}
+
+void TParsedQuery::AppendNamePart(std::string& name, std::uint32_t& path,
+    std::string_view part, TSourcePosition position) {
+    if (name.size() >= NoSyntax || NamePaths.size() >= NoSyntax - 2)
+        throw TResourceLimitError(position, "qualified name limit exceeded");
+    if (!path) {
+        path = static_cast<std::uint32_t>(NamePaths.size() + 1);
+        NamePaths.push_back(0);
+    } else if (path + NamePaths[path - 1] != NamePaths.size()) {
+        // Parenthesized names can resume a path after another expression.
+        const auto previous = path;
+        const auto count = NamePaths[previous - 1];
+        if (count >= NoSyntax - NamePaths.size() - 2)
+            throw TResourceLimitError(position, "qualified name limit exceeded");
+        path = static_cast<std::uint32_t>(NamePaths.size() + 1);
+        NamePaths.push_back(count);
+        for (std::uint32_t i = 0; i < count; ++i) NamePaths.push_back(NamePaths[previous + i]);
+    }
+    ++NamePaths[path - 1];
+    NamePaths.push_back(static_cast<std::uint32_t>(name.size()));
+    name += '.';
+    name += part;
+}
+
+std::span<const std::uint32_t> TParsedQuery::NameSeparators(const TSyntaxExpr& expression) const {
+    if (!expression.NamePath) return {};
+    const auto offset = expression.NamePath;
+    return std::span(NamePaths).subspan(offset, NamePaths.at(offset - 1));
 }
 
 TParsedExpression ParseExpression(std::string_view sql, const TParseSettings& settings) {

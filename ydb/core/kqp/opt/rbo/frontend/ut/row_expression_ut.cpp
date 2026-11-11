@@ -8,7 +8,9 @@ std::string Fingerprint(TParsedExpression parsed) {
     TStatement binding{EStatementKind::Binding, {}};
     binding.Name = "value";
     binding.Expression = parsed.Root;
-    return SyntaxFingerprint({std::move(parsed.Expressions), {std::move(binding)}});
+    TParsedQuery query{std::move(parsed.Expressions), {std::move(binding)}};
+    query.NamePaths = std::move(parsed.NamePaths);
+    return SyntaxFingerprint(query);
 }
 }
 

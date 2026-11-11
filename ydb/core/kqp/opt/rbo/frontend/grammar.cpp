@@ -137,7 +137,7 @@ private:
         if (Result.Expressions.size() >= Settings.MaxNodes || Result.Expressions.size() >= NoSyntax)
             throw TResourceLimitError(Position(node), "syntax node limit exceeded");
         const auto id = static_cast<TSyntaxId>(Result.Expressions.size());
-        Result.Expressions.push_back({kind, Position(node), std::move(text), std::move(args), {}, false});
+        Result.Expressions.push_back({kind, 0, Position(node), std::move(text), std::move(args), {}, false});
         return id;
     }
     std::string Decode(std::string text, TTree* node, bool identifier = false) const {
@@ -423,8 +423,10 @@ private:
                     if (Has(child, "*")) args.push_back(Add(ESyntaxKind::Star, child));
                     if (auto* list = Child(child, "named_expr_list")) {
                         for (auto* arg : Children(list, "named_expr")) {
-                            if (Child(arg, "an_id_or_type")) Unsupported(arg, EFeature::Expression, "named argument");
-                            args.push_back(Expr(Child(arg, "expr")));
+                            auto value = Expr(Child(arg, "expr"));
+                            if (auto* alias = Child(arg, "an_id_or_type"))
+                                value = Add(ESyntaxKind::Named, alias, Id(alias), {value});
+                            args.push_back(value);
                         }
                     }
                     auto function = named ? Result.Expressions[value].Text : std::string{};
@@ -444,8 +446,10 @@ private:
                     const auto index = Expr(Child(child, "expr"));
                     value = Add(ESyntaxKind::Index, child, {}, {value, index});
                 } else if (member) {
-                    if (Result.Expressions[value].Kind != ESyntaxKind::Column) Unsupported(child, EFeature::Type, "member access on a value");
-                    Result.Expressions[value].Text += "." + Id(child);
+                    auto& expression = Result.Expressions[value];
+                    if (expression.Kind == ESyntaxKind::Column)
+                        Result.AppendNamePart(expression.Text, expression.NamePath, Id(child), Position(child));
+                    else value = Add(ESyntaxKind::Member, child, Id(child), {value});
                     member = false;
                 } else Unsupported(child, EFeature::Expression, "subscript or invocation suffix");
             }
@@ -1058,7 +1062,7 @@ TParsedQuery ParseGrammar(std::string_view sql, const TParseSettings& settings) 
 TParsedExpression ParseGrammarExpression(std::string_view sql, const TParseSettings& settings) {
     TSyntaxId root;
     auto syntax = Run(sql, settings, true, &root);
-    return {std::move(syntax.Expressions), root};
+    return {std::move(syntax.Expressions), root, std::move(syntax.NamePaths)};
 }
 
 std::string SyntaxFingerprint(const TParsedQuery& query) {
@@ -1080,6 +1084,11 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         const auto& node = query.Expressions.at(id);
         out << '(' << static_cast<int>(node.Kind) << ',' << node.Distinct;
         text(node.Text);
+        if (node.NamePath) {
+            out << "path[";
+            for (const auto separator : query.NameSeparators(node)) out << separator << ',';
+            out << ']';
+        }
         if (node.Lambda) {
             out << "parameters["; for (const auto& name : node.Lambda->Parameters) text(name); out << ']';
             out << "locals["; for (const auto& name : node.Lambda->Locals) text(name); out << ']';

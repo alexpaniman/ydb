@@ -7,6 +7,139 @@ namespace NKikimr::NKqp {
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceRuntime) {
+    Y_UNIT_TEST(NativeCatalogAndResultContract) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* config = appConfig.MutableTableServiceConfig();
+        config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        config->SetEnableNewRBO(true);
+        config->SetEnableAstCache(true);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetEnableFallbackOnMultipleStatements(false);
+        TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
+        auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto scheme = tableSession.ExecuteSchemeQuery(
+            "CREATE TABLE `/Root/a` (id Int64 NOT NULL, value String, PRIMARY KEY(id));"
+            "CREATE TABLE `/Root/b` (id Int64 NOT NULL, PRIMARY KEY(id));").GetValueSync();
+        UNIT_ASSERT_C(scheme.IsSuccess(), scheme.GetIssues().ToString());
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        auto rows = TValueBuilder().BeginList()
+            .AddListItem().BeginStruct().AddMember("id").Int64(1).AddMember("value").OptionalString("one").EndStruct()
+            .AddListItem().BeginStruct().AddMember("id").Int64(2).AddMember("value").OptionalString("two").EndStruct()
+            .EndList().Build();
+        auto write = kikimr.GetTableClient().BulkUpsert("/Root/a", std::move(rows)).GetValueSync();
+        UNIT_ASSERT_C(write.IsSuccess(), write.GetIssues().ToString());
+        auto keys = TValueBuilder().BeginList().AddListItem().BeginStruct().AddMember("id").Int64(2).EndStruct().EndList().Build();
+        auto writeKeys = kikimr.GetTableClient().BulkUpsert("/Root/b", std::move(keys)).GetValueSync();
+        UNIT_ASSERT_C(writeKeys.IsSuccess(), writeKeys.GetIssues().ToString());
+
+        auto joined = session.ExecuteQuery(
+            "PRAGMA TablePathPrefix = '/Root'; WITH c AS (SELECT id FROM b) "
+            "SELECT a.id AS id, a.value AS value FROM a JOIN c ON a.id = c.id ORDER BY a.id;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(joined.IsSuccess(), joined.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(joined.GetResultSet(0)), R"([[2;["two"]]])");
+        UNIT_ASSERT_VALUES_EQUAL(joined.GetResultSet(0).GetColumnsMeta()[0].Name, "id");
+        UNIT_ASSERT_VALUES_EQUAL(joined.GetResultSet(0).GetColumnsMeta()[1].Name, "value");
+        // Qualified stars are supported natively even though the legacy
+        // forced-YqlSelect translator cannot supply a comparison result.
+        auto mixedStar = session.ExecuteQuery("SELECT 1 AS z, a.* FROM `/Root/a` AS a ORDER BY id;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(mixedStar.IsSuccess(), mixedStar.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(mixedStar.GetResultSet(0)), R"([[1;1;["one"]];[1;2;["two"]]])");
+        auto qualifiedStar = session.ExecuteQuery(
+            "SELECT a.* FROM `/Root/a` AS a JOIN `/Root/b` AS b ON a.id = b.id ORDER BY a.id;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(qualifiedStar.IsSuccess(), qualifiedStar.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(qualifiedStar.GetResultSet(0)), R"([[2;["two"]]])");
+        auto scan = kikimr.GetTableClient().StreamExecuteScanQuery(
+            "SELECT id FROM `/Root/b` ORDER BY id;").GetValueSync();
+        UNIT_ASSERT_C(scan.IsSuccess(), scan.GetIssues().ToString());
+        CompareYson(StreamResultToYson(scan), "[[2]]");
+        auto grouped = session.ExecuteQuery(
+            "SELECT key, COUNT(*) AS n FROM `/Root/a` GROUP BY id % 2 AS key ORDER BY key;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(grouped.IsSuccess(), grouped.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(grouped.GetResultSet(0)), "[[[0];1u];[[1];1u]]");
+        // Table information in the native contract must invalidate cached plans
+        // after a schema change, including their cached result column metadata.
+        const TString star = "SELECT * FROM `/Root/a` ORDER BY id;";
+        for (size_t count : {2, 2, 3}) {
+            if (count == 3) {
+                auto alter = tableSession.ExecuteSchemeQuery("ALTER TABLE `/Root/a` ADD COLUMN extra String;").GetValueSync();
+                UNIT_ASSERT_C(alter.IsSuccess(), alter.GetIssues().ToString());
+            }
+            auto result = session.ExecuteQuery(star, NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).GetColumnsMeta().size(), count);
+        }
+
+        // Unsupported semantics remain errors in NativeRequired. Subsequent
+        // queries must retain valid catalog and result metadata.
+        auto fallback = session.ExecuteQuery("SELECT TablePath() AS path FROM `/Root/b`;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!fallback.IsSuccess());
+        UNIT_ASSERT_STRING_CONTAINS(fallback.GetIssues().ToString(), "TablePath");
+        auto structured = session.ExecuteQuery("SELECT (AsStruct(id AS k)).k AS id FROM `/Root/b`;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(structured.IsSuccess(), structured.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(structured.GetResultSet(0)), "[[2]]");
+        for (const auto* sql : {
+                "SELECT AsStruct(id AS k, Ensure(id, FALSE, 'discarded field') AS bad).k AS id FROM `/Root/b`;",
+                "SELECT s.r.k AS id FROM (SELECT AsStruct(id AS k) AS r FROM `/Root/b`) AS s;",
+                "SELECT r.k AS id FROM (SELECT AsStruct(id AS k) AS r FROM `/Root/b`) AS s;"}) {
+            const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), TString(sql) + result.GetIssues().ToString());
+            CompareYson(FormatResultSetYson(result.GetResultSet(0)), "[[2]]");
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).GetColumnsMeta()[0].Name, "id");
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).GetColumnsMeta()[0].Type.ToString(), "Int64");
+        }
+        const auto named = session.ExecuteQuery(
+            "SELECT s.r.k FROM (SELECT AsStruct(id AS k) AS r FROM `/Root/b`) AS s;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(named.IsSuccess(), named.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(named.GetResultSet(0)), "[[2]]");
+        UNIT_ASSERT_VALUES_EQUAL(named.GetResultSet(0).GetColumnsMeta()[0].Name, "column0");
+        for (const auto& [sql, expected] : TVector<std::pair<TString, TString>>{
+                {"SELECT (SELECT AsStruct(id AS k) FROM `/Root/b`).k AS id;", "[[[2]]]"},
+                {"SELECT (SELECT AsStruct(id AS k) FROM `/Root/b` WHERE id = 0).k AS id;", "[[#]]"},
+                {"PRAGMA kikimr.DqHashOperatorsUseBlocks='false'; "
+                 "SELECT (SELECT [AsStruct(id AS k)] FROM `/Root/b`)[0u].k AS id;", "[[[2]]]"}}) {
+            const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), sql + result.GetIssues().ToString());
+            CompareYson(FormatResultSetYson(result.GetResultSet(0)), expected);
+        }
+        const auto multipleRecords = session.ExecuteQuery(
+            "SELECT (SELECT AsStruct(id AS k) FROM `/Root/a`).k AS id;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!multipleRecords.IsSuccess());
+        UNIT_ASSERT_STRING_CONTAINS(multipleRecords.GetIssues().ToString(), "Scalar subquery returned more than one row");
+        const auto checked = session.ExecuteQuery(
+            "SELECT AsStruct(id AS k, Ensure(id, FALSE, 'selected field') AS bad).bad FROM `/Root/b`;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!checked.IsSuccess());
+        UNIT_ASSERT_STRING_CONTAINS(checked.GetIssues().ToString(), "selected field");
+        auto multipleScan = kikimr.GetTableClient().StreamExecuteScanQuery("SELECT 1; SELECT 2;").GetValueSync();
+        TString scanIssues;
+        if (multipleScan.IsSuccess()) {
+            auto part = multipleScan.ReadNext().GetValueSync();
+            UNIT_ASSERT(!part.IsSuccess());
+            scanIssues = part.GetIssues().ToString();
+        } else {
+            scanIssues = multipleScan.GetIssues().ToString();
+        }
+        UNIT_ASSERT_STRING_CONTAINS(scanIssues, "single result set");
+        auto duplicate = session.ExecuteQuery("SELECT 1 AS x, 2 AS x;", NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!duplicate.IsSuccess());
+        auto invalid = session.ExecuteQuery("PRAGMA YqlSelect = 'invalid'; SELECT id FROM `/Root/a`;",
+            NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!invalid.IsSuccess());
+        auto missing = session.ExecuteQuery("SELECT id FROM `/Root/absent`;", NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT(!missing.IsSuccess());
+        auto next = session.ExecuteQuery("SELECT id FROM `/Root/b` WHERE id = 2;", NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(next.IsSuccess(), next.GetIssues().ToString());
+        CompareYson(FormatResultSetYson(next.GetResultSet(0)), "[[2]]");
+    }
+
     Y_UNIT_TEST(DeclaredParametersAndNativeWritesPreserveRowsAndIndexes) {
         TString groupedBaseline;
         for (const bool enable : {false, true}) {

@@ -33,7 +33,7 @@ struct TWindowFrame {
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
     Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue, Index, Invoke, Lambda,
-    ByteString, Utf8String, BitCast, JsonString, YsonString,
+    ByteString, Utf8String, BitCast, JsonString, YsonString, Member, Named,
 };
 
 inline bool IsStringLiteral(ESyntaxKind kind) {
@@ -42,6 +42,9 @@ inline bool IsStringLiteral(ESyntaxKind kind) {
 
 struct TSyntaxExpr {
     ESyntaxKind Kind;
+    // Offset into the query's packed qualification separators. Zero denotes
+    // one identifier; dots inside quoted identifiers are never separators.
+    std::uint32_t NamePath = 0;
     TSourcePosition Position;
     std::string Text;
     std::vector<TSyntaxId> Arguments;
@@ -273,11 +276,16 @@ struct TParsedQuery {
     std::vector<TStatement> Statements;
     // Diagnostic only; deliberately excluded from syntax correspondence.
     bool UsedGeneratedParser = false;
+    std::vector<std::uint32_t> NamePaths = {};
+
+    void AppendNamePart(std::string& name, std::uint32_t& path, std::string_view part, TSourcePosition position);
+    std::span<const std::uint32_t> NameSeparators(const TSyntaxExpr& expression) const;
 };
 
 struct TParsedExpression {
     std::vector<TSyntaxExpr> Expressions;
     TSyntaxId Root;
+    std::vector<std::uint32_t> NamePaths = {};
 };
 
 struct TParseSettings {
