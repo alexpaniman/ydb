@@ -6,6 +6,58 @@
 namespace NKikimr::NKqp {
 
 Y_UNIT_TEST_SUITE(KqpNativeOlapPolicy) {
+    Y_UNIT_TEST(ColumnNullChecksMatchExistingCollector) {
+        using namespace NFrontend;
+        using namespace NYql;
+        for (const auto name : {"Bool", "Int32", "Uint64", "Double", "String", "Utf8", "Uuid",
+                "Decimal(12,2)", "Json", "JsonDocument", "Date", "Timestamp64"})
+        for (const bool nullable : {false, true}) for (const bool exists : {false, true}) {
+            TExpressionArena arena;
+            const auto type = nullable ? ParseType(name).Optional() : ParseType(name);
+            const auto predicate = arena.Unary(exists ? EOpcode::IsNotNull : EOpcode::IsNull, arena.Column(0, type));
+            TExprContext ctx;
+            const TPositionHandle pos;
+            const auto* fieldType = ExportNativeType(type, ctx);
+            const auto* rowType = ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{
+                ctx.MakeType<TItemExprType>("x", fieldType)});
+            const auto row = ctx.NewArgument(pos, "row"); row->SetTypeAnn(rowType);
+            auto member = ctx.NewCallable(pos, "Member", {row, ctx.NewAtom(pos, "x")});
+            member->SetTypeAnn(fieldType);
+            const auto* boolType = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Bool);
+            auto legacy = ctx.NewCallable(pos, "Exists", {member}); legacy->SetTypeAnn(boolType);
+            if (!exists) {
+                legacy = ctx.NewCallable(pos, "Not", {legacy}); legacy->SetTypeAnn(boolType);
+            }
+            for (const bool apply : {false, true}) {
+                const auto description = TStringBuilder() << type.ToString() << " exists=" << exists << " scalarApply=" << apply;
+                NOpt::TOLAPPredicateNode collected;
+                NOpt::CollectPredicates(NNodes::TExprBase(legacy), collected, row.Get(), rowType, {apply, false});
+                UNIT_ASSERT_C(apply ? collected.CanBePushedApply : collected.CanBePushed, description);
+                UNIT_ASSERT_C(CanPushNativeOlapPredicate(arena, predicate, apply), description);
+                const auto lowered = LowerNativeOlapPredicate(arena, predicate, ctx, pos);
+                const auto& operation = lowered->Tail().Tail().Head();
+                UNIT_ASSERT_C(operation.IsList(), description);
+                UNIT_ASSERT_VALUES_EQUAL(operation.Head().Content(), exists ? "exists" : "empty");
+                UNIT_ASSERT_VALUES_EQUAL(operation.Tail().Content(), "0");
+                UNIT_ASSERT(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).empty());
+            }
+        }
+    }
+
+    Y_UNIT_TEST(ColumnNullChecksDoNotAdmitUnsupportedValueUses) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto document = arena.Column(0, {ETypeKind::JsonDocument, true});
+        const auto check = arena.Unary(EOpcode::IsNotNull, document);
+        const auto valueCheck = arena.Unary(EOpcode::IsNotNull, arena.JsonValue(document, "$.a"));
+        const auto predicate = arena.Binary(EOpcode::And, check, valueCheck);
+        for (const bool apply : {false, true}) {
+            UNIT_ASSERT(CanPushNativeOlapPredicate(arena, check, apply));
+            UNIT_ASSERT(!CanLowerNativeOlapPredicate(arena, valueCheck, apply));
+            UNIT_ASSERT(!CanPushNativeOlapPredicate(arena, predicate, apply));
+        }
+    }
+
     Y_UNIT_TEST(ComparisonEligibilityMatchesExistingCollector) {
         using namespace NFrontend;
         using namespace NYql;

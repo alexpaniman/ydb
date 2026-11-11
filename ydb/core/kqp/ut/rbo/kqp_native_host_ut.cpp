@@ -2977,11 +2977,16 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             }
             const auto loaded = tableClient.BulkUpsert("/Root/JsonProjection", rows.EndList().Build()).GetValueSync();
             UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
-            struct TCase { const char* Expression; const char* Filter; std::vector<std::optional<std::string>> Expected; };
+            struct TCase {
+                const char* Expression;
+                const char* Filter;
+                std::vector<std::optional<std::string>> Expected;
+                bool StorageProjection;
+            };
             const TCase cases[]{
-                {"IF(doc IS NULL, JSON_VALUE(doc, '$.a'), 'fallback'u)", "", {"fallback", "fallback", "fallback", std::nullopt}},
-                {"JSON_VALUE(doc, '$.a') || JSON_VALUE(doc, '$.a')", "", {"valuevalue", std::nullopt, std::nullopt, std::nullopt}},
-                {"JSON_VALUE(doc, '$.a')", " WHERE doc IS NOT NULL", {"value", std::nullopt, std::nullopt}},
+                {"IF(doc IS NULL, JSON_VALUE(doc, '$.a'), 'fallback'u)", "", {"fallback", "fallback", "fallback", std::nullopt}, false},
+                {"JSON_VALUE(doc, '$.a') || JSON_VALUE(doc, '$.a')", "", {"valuevalue", std::nullopt, std::nullopt, std::nullopt}, true},
+                {"JSON_VALUE(doc, '$.a')", " WHERE doc IS NOT NULL", {"value", std::nullopt, std::nullopt}, true},
             };
             for (const auto& test : cases) {
                 const TString sql = TStringBuilder() << "PRAGMA ydb.OptEnableOlapPushdown='true'; "
@@ -2998,10 +3003,8 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
                 const auto ast = *explain.GetStats()->GetAst();
                 UNIT_ASSERT_C(ast.find("native frontend: native-read-v1") != std::string::npos, sql << '\n' << ast);
-                if (std::string_view(test.Expression).starts_with("IF"))
-                    UNIT_ASSERT_C(ast.find("KqpOlapProjections") == std::string::npos, sql);
-                if (std::string_view(test.Expression).find("||") != std::string::npos)
-                    UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapProjections") != std::string::npos, push, sql);
+                UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapProjections") != std::string::npos,
+                    push && test.StorageProjection, sql);
                 UNIT_ASSERT_VALUES_EQUAL(resultSet.RowsCount(), test.Expected.size());
                 TResultSetParser values(resultSet);
                 std::size_t row = 0;

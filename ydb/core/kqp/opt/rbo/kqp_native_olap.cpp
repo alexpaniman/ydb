@@ -133,6 +133,15 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFron
             }
         }
         if (!OlapNodeSupported(arena, node, filterTruth) && !(allowScalarApply && OlapScalarNodeSupported(node))) return false;
+        if ((node.Op == O::IsNull || node.Op == O::IsNotNull) && arena[node.Arguments[0]].Op == O::Column) {
+            // Storage null checks consume the column's nullness, not its value.
+            // Like the existing collector's Exists(Member), they also support
+            // columns whose values cannot participate in storage expressions.
+            auto& result = supported[id];
+            result.HasColumn = true;
+            result.Checked |= mode;
+            continue;
+        }
         if (!ready) {
             pending.push_back({id, true, filterTruth});
             const bool childTruth = filterTruth && (node.Op == O::And || node.Op == O::Or);

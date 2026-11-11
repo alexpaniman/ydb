@@ -27,7 +27,9 @@ TIntrusivePtr<IOperator> PushNativeProjections(const TIntrusivePtr<TOpMap>& map,
     auto program = read->OlapProgram ? read->OlapProgram.Native() : TOlapProgram::TNative{};
     auto blocked = GetLiveOut(map.Get());
     blocked.IntersectWith(read->GetColumns());
-    if (program.Predicate) blocked.UnionWith(program.Predicate->GetRawInputIUs());
+    // Storage filters consume the original row before projections overwrite
+    // fields, as in the pre-PR storage program. Their inputs do not block a
+    // later projection; uses outside that program still need the original value.
     blocked.UnionWith(program.Projections.Keys());
     // The physical backend replaces storage fields by name. Two IDs reading
     // that field cannot independently retain its old and projected values.

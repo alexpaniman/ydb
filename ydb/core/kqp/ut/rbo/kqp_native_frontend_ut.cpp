@@ -2175,7 +2175,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(OlapProjectionsStayNativeAndPreserveLiveJsonInputs) {
         using namespace NFrontend;
         using K = ETypeKind;
-        for (int scenario = 0; scenario < 11; ++scenario) {
+        for (int scenario = 0; scenario < 12; ++scenario) {
             NTests::TIdTestContext f;
             f.Config->OptEnableOlapPushdown = true;
             f.Config->OptEnableOlapPushdownProjections = true;
@@ -2204,7 +2204,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             read->TableRef = MakeRboTable(*metadata);
             const auto alias = scenario == 6 ? f.Id("doc") : doc;
             if (scenario == 6) read->GetColumns().Add(alias);
-            const auto predicate = arena->Binary(EOpcode::Greater, arena->Column(key, {K::Int32, true}), arena->Literal({K::Int32}, std::int64_t{0}));
+            auto predicate = arena->Binary(EOpcode::Greater, arena->Column(key, {K::Int32, true}), arena->Literal({K::Int32}, std::int64_t{0}));
+            if (scenario == 11) predicate = arena->Binary(EOpcode::And, predicate, arena->Unary(EOpcode::IsNotNull, input));
             read->OlapProgram = TOlapProgram(expression(predicate));
             TMapIUs definitions; definitions.Add(result, TMapElement(expression(value)));
             TOrderedIUs<TString> outputs{{result, "result"}};
@@ -2226,7 +2227,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             ComputePlanLiveness(*root);
             TPushOlapProjectionRule rule;
             const auto pushed = rule.SimpleMatchAndApply(map, context, root->PlanProps);
-            const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9 || scenario == 10;
+            const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9 || scenario == 10 || scenario == 11;
             UNIT_ASSERT_VALUES_EQUAL_C(pushed != map, eligible, scenario);
             root->SetChild(0, pushed); root->RecomputeOutputIUsSubtree(); root->ComputeParents();
             UNIT_ASSERT(ComputeTypesWithoutBackend(*root, context) == IGraphTransformer::TStatus::Ok);
@@ -2248,10 +2249,22 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto lowered = LowerNativeOlapProgram(copy.OlapProgram, f.ExprCtx, f.Pos);
             UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapJsonValue"); }).size(), 1);
             UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapFilter"); }).size(), 1);
+            UNIT_ASSERT(lowered->Tail().IsCallable("KqpOlapProjections"));
+            UNIT_ASSERT(lowered->Tail().Head().IsCallable("KqpOlapFilter"));
+            if (scenario == 11) {
+                const auto& filter = *copy.OlapProgram.Native().Predicate;
+                UNIT_ASSERT(filter.GetRawInputIUs() == (TUnorderedIUs{*renames.Find(key), *renames.Find(doc)}));
+                const auto& filterArena = *filter.GetNativeArena();
+                const auto& documentCheck = filterArena[filterArena[filter.GetNativeRoot()].Arguments[1]];
+                UNIT_ASSERT(documentCheck.Op == EOpcode::IsNotNull);
+                const auto& document = filterArena[documentCheck.Arguments[0]];
+                UNIT_ASSERT_VALUES_EQUAL(document.ColumnId, *renames.Find(doc));
+                UNIT_ASSERT(document.Type == (TType{K::JsonDocument, true}));
+            }
             UNIT_ASSERT(source.PruneOutputs({key}, f.ExprCtx));
             UNIT_ASSERT(source.OlapProgram.Native().Predicate);
             UNIT_ASSERT(source.OlapProgram.Native().Projections.Keys().Empty());
-            UNIT_ASSERT(source.GetColumns() == TUnorderedIUs{key});
+            UNIT_ASSERT(source.GetColumns() == (scenario == 11 ? TUnorderedIUs{key, doc} : TUnorderedIUs{key}));
         }
     }
 
