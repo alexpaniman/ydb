@@ -15,6 +15,81 @@ namespace {
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    // PR #58587 catalog/name-resolution cases, using required native routing
+    // instead of polling asynchronous logs for an admission marker.
+    Y_UNIT_TEST(NativeResolvesNamesUsingLoadedMetadata) {
+        for (const bool native : {false, true}) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            config->SetEnableNewRBO(native);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+            auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            const auto scheme = tableSession.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/names` (id Int64 NOT NULL, value String, amount Decimal(12,2), PRIMARY KEY(id));").GetValueSync();
+            UNIT_ASSERT_C(scheme.IsSuccess(), scheme.GetIssues().ToString());
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            const auto good = [&](const TString& sql, const TParams& params = TParamsBuilder().Build()) {
+                const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+            };
+            const auto bad = [&](const TString& sql, const TString& diagnostic) {
+                const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(!result.IsSuccess(), sql);
+                if (native) UNIT_ASSERT_STRING_CONTAINS(result.GetIssues().ToString(), diagnostic);
+            };
+            good(TString(native ? "PRAGMA YqlSelect = 'force'; " : "") +
+                "SELECT n.id, n.value FROM `/Root/names` AS n WHERE n.id > 0 ORDER BY n.id;");
+            good("SELECT id + $offset, amount FROM `/Root/names` LIMIT 5;",
+                TParamsBuilder().AddParam("$offset").Int64(3).Build().Build());
+            bad("SELECT n.id + n.value FROM `/Root/names` AS n;", "No common type");
+            good("SELECT r.id FROM `/Root/names` AS l LEFT JOIN `/Root/names` AS r ON l.id = r.id;");
+            good("SELECT COUNT(*) FROM `/Root/names`;");
+            bad("SELECT n.absent FROM `/Root/names` AS n;", "unknown or ungrouped column: n.absent");
+            bad("SELECT id FROM `/Root/names` AS l JOIN `/Root/names` AS r ON l.id = r.id;", "ambiguous column: id");
+            // A failed binding must not contaminate the next compilation.
+            good("SELECT id FROM `/Root/names` WHERE id = 7;");
+        }
+    }
+
+    Y_UNIT_TEST(NativeSelectAndSyntaxErrors) {
+        for (const bool native : {false, true}) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            config->SetEnableNewRBO(native);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+            auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            const auto scheme = tableSession.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/t1` (a Int64 NOT NULL, PRIMARY KEY(a));").GetValueSync();
+            UNIT_ASSERT_C(scheme.IsSuccess(), scheme.GetIssues().ToString());
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+            const auto success = counters->GetCounter("Compilation/NewRBO/Success");
+            const auto failure = counters->GetCounter("Compilation/NewRBO/Failed");
+            const auto beforeSuccess = success->Val(), beforeFailure = failure->Val();
+            for (const auto* sql : {"SELECT COUNT(*) FROM `/Root/t1`;",
+                    "--!ansi_lexer\nSELECT COUNT(*) AS \"count\" FROM `/Root/t1`;"}) {
+                const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)), "[[0u]]");
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+            }
+            UNIT_ASSERT_VALUES_EQUAL(failure->Val(), beforeFailure);
+            UNIT_ASSERT_VALUES_EQUAL(success->Val() - beforeSuccess, native ? 2 : 0);
+            const auto invalid = session.ExecuteQuery("SELECT (", NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT(!invalid.IsSuccess());
+            UNIT_ASSERT(!invalid.GetIssues().Empty());
+        }
+    }
+
     Y_UNIT_TEST(NativeBitwiseAndNullSafeResultsMatchLegacy) {
         TParamsBuilder parameters;
         auto& rows = parameters.AddParam("$rows").BeginList();
