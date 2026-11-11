@@ -1011,6 +1011,9 @@ TType CommonType(TType left, TType right, TSourcePosition position) {
 }
 
 TType TType::Optional() const {
+    // This operation ensures nullability; Null already has no present value.
+    // An explicit optional wrapper is constructed separately by OptionalWrap.
+    if (Kind == K::Null) return Required();
     auto result = *this;
     result.OptionalDepth = std::max<std::uint8_t>(result.OptionalDepth, 1);
     return result;
@@ -1292,7 +1295,7 @@ TExprId TExpressionArena::Literal(TType type, TScalar value, TSourcePosition pos
 }
 
 TExprId TExpressionArena::Null(TSourcePosition position) {
-    return Literal({K::Null, true}, std::monostate{}, position);
+    return Literal({K::Null}, std::monostate{}, position);
 }
 
 TExprId TExpressionArena::Column(TColumnId column, TType type, TSourcePosition position) {

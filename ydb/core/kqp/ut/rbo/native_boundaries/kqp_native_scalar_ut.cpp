@@ -5,6 +5,31 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(NullTuplePayloadExecutesWithoutOptionalNullLifting) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        TExpressionArena arena;
+        const TType fields[]{TType{K::Int32}, arena[arena.Null()].Type};
+        const auto tupleType = arena.TupleType(fields).Optional();
+        const auto tuple = arena.Parameter("tuple", tupleType);
+        const auto root = arena.TupleElement(tuple, 1);
+        for (const bool present : {false, true}) {
+            TEvaluationContext evaluation;
+            evaluation.Parameter = [&](auto) {
+                if (!present) return TValue{tupleType, {}};
+                auto items = std::make_shared<TTupleValue>();
+                items->Items = {{{K::Int32}, std::int64_t{1}}, {{K::Null}, {}}};
+                return TValue{tupleType, TTuple(std::move(items))};
+            };
+            CheckScalar(arena, root, "NULL payload in a present or missing tuple", evaluation,
+                [&](NYql::NCommon::TMkqlBuildContext& build, NMiniKQL::TProgramBuilder& pb) {
+                    auto value = pb.NewOptional(pb.NewTuple({pb.NewDataLiteral<i32>(1), pb.NewNull()}));
+                    if (!present) value = pb.NewEmptyOptional(value.GetStaticType());
+                    build.Parameters = pb.NewStruct({{"$tuple", value}});
+                });
+        }
+    }
+
     Y_UNIT_TEST(CheckedArithmeticAndBitCastExecuteWithoutSemanticPasses) {
         using namespace NFrontend;
         using K = ETypeKind;

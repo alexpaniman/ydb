@@ -22,6 +22,23 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(NullRemainsItsOwnNullableTypeThroughTupleAccess) {
+        TExpressionArena arena;
+        const auto null = arena.Null();
+        const TType nullType{K::Null};
+        UNIT_ASSERT(arena[null].Type == nullType);
+        UNIT_ASSERT(nullType.Optional() == nullType);
+        UNIT_ASSERT(CommonType(nullType, nullType) == nullType);
+        const TType fields[]{TType{K::Int32}, nullType};
+        const auto tupleType = arena.TupleType(fields);
+        for (const bool optional : {false, true}) {
+            const auto tuple = arena.Parameter("tuple", optional ? tupleType.Optional() : tupleType);
+            const auto value = arena.TupleElement(tuple, 1);
+            UNIT_ASSERT(arena[value].Type == nullType);
+            UNIT_ASSERT(arena[arena.FoldConstants(std::span(&value, 1)).front()].Type == nullType);
+        }
+    }
+
     Y_UNIT_TEST(TupleTypeNamesPreserveDecimalParametersAndOptionality) {
         TExpressionArena arena;
         const auto type = arena.ParseTypeName("Tuple<Int64,Decimal(12,2),String?>?");
