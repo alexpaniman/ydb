@@ -65,6 +65,11 @@ Filters require `Bool` or `Bool?`; a present optional wrapper around a required
 Boolean can be removed here. Constant folding tracks conservative totality in
 its existing traversal, so Boolean identities and known null checks can simplify
 without dropping checked errors or runtime calls.
+That traversal also shares equivalent repeatable scalar nodes before relational
+rules inspect the DAG, replacing the scalar identity previously supplied by YQL
+normalization. Identity includes native types, exact literal bits, bindings and
+operand order. Original roots remain immutable; volatile calls and runtime
+assertions retain separate identities. JSON/path evaluation stays in the runtime.
 `BETWEEN` binds to native comparisons with SQL three-valued logic. Its symmetric
 form checks both bound orders; its negated form uses the opposite comparisons,
 preserving the existing SQL behavior for NaN. `IN COMPACT` uses native membership

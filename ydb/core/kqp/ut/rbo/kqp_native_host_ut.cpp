@@ -2950,6 +2950,70 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
     Y_UNIT_TEST(JsonValuesMatchBothCompilersOnPopulatedTables) { RunJsonValuesMatchBothCompilersOnPopulatedTables(false); }
     Y_UNIT_TEST(JsonProjectionsPreserveScalarResultsAndKernelBoundaries) { RunJsonValuesMatchBothCompilersOnPopulatedTables(true); }
 
+    Y_UNIT_TEST(OlapJsonProjectionKeepsOriginalDocumentSemantics) {
+        // The immutable pre-PR compiler returns NULL for rows 2 and 3 in the
+        // first query when projection overwrites doc before its outer NULL test.
+        // Pin SQL results independently of that known baseline error.
+        for (const bool push : {false, true}) {
+            auto settings = NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+            auto* service = settings.AppConfig.MutableTableServiceConfig();
+            service->SetAllowOlapDataQuery(true);
+            service->SetEnableFallbackOnMultipleStatements(false);
+            service->SetEnableNewRBOPhysicalStagePeephole(false);
+            // The existing setting combines the pragma with this server flag
+            // using OR. Disable the default so the pragma controls each case.
+            service->SetEnableOlapPushdownProjections(false);
+            TKikimrRunner runner(settings);
+            auto tableClient = runner.GetTableClient();
+            auto session = tableClient.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/JsonProjection` (id Uint64 NOT NULL, doc JsonDocument, PRIMARY KEY(id)) WITH (STORE = COLUMN);").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TValueBuilder rows; rows.BeginList();
+            ui64 id = 1;
+            for (const auto* document : {"{\"a\":\"value\"}", "{}", "{\"a\":null}", static_cast<const char*>(nullptr)}) {
+                rows.AddListItem().BeginStruct().AddMember("id").Uint64(id++)
+                    .AddMember("doc").OptionalJsonDocument(document ? std::optional<std::string>{document} : std::nullopt).EndStruct();
+            }
+            const auto loaded = tableClient.BulkUpsert("/Root/JsonProjection", rows.EndList().Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            struct TCase { const char* Expression; const char* Filter; std::vector<std::optional<std::string>> Expected; };
+            const TCase cases[]{
+                {"IF(doc IS NULL, JSON_VALUE(doc, '$.a'), 'fallback'u)", "", {"fallback", "fallback", "fallback", std::nullopt}},
+                {"JSON_VALUE(doc, '$.a') || JSON_VALUE(doc, '$.a')", "", {"valuevalue", std::nullopt, std::nullopt, std::nullopt}},
+                {"JSON_VALUE(doc, '$.a')", " WHERE doc IS NOT NULL", {"value", std::nullopt, std::nullopt}},
+            };
+            for (const auto& test : cases) {
+                const TString sql = TStringBuilder() << "PRAGMA ydb.OptEnableOlapPushdown='true'; "
+                    << "PRAGMA ydb.OptEnableOlapPushdownProjections='" << (push ? "true" : "false") << "'; "
+                    << "SELECT id, " << test.Expression << " AS value FROM `/Root/JsonProjection`" << test.Filter << " ORDER BY id;";
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                    NQuery::TExecuteQuerySettings().StatsMode(NQuery::EStatsMode::Full)).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                const auto& resultSet = result.GetResultSet(0);
+                const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                    NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                const auto ast = *explain.GetStats()->GetAst();
+                UNIT_ASSERT_C(ast.find("native frontend: native-read-v1") != std::string::npos, sql << '\n' << ast);
+                if (std::string_view(test.Expression).starts_with("IF"))
+                    UNIT_ASSERT_C(ast.find("KqpOlapProjections") == std::string::npos, sql);
+                if (std::string_view(test.Expression).find("||") != std::string::npos)
+                    UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapProjections") != std::string::npos, push, sql);
+                UNIT_ASSERT_VALUES_EQUAL(resultSet.RowsCount(), test.Expected.size());
+                TResultSetParser values(resultSet);
+                std::size_t row = 0;
+                while (values.TryNextRow()) {
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("id").GetUint64(), row + 1);
+                    UNIT_ASSERT_C(values.ColumnParser("value").GetOptionalUtf8() == test.Expected[row], sql << " row " << row);
+                    ++row;
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeCompilationBenchmark) {
         const auto& requested = GetTestParam("NATIVE_COMPILATION_BENCH_ITERATIONS");
         if (requested.empty()) return;
@@ -4609,13 +4673,16 @@ $round = ($x,$y) -> {return $x;};
             const auto loaded = client.BulkUpsert("/Root/NativeOlap", rows.Build()).GetValueSync();
             UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
             size_t index = 0;
+            // Pin the pre-PR admission policy with scalar apply disabled.
+            // Boolean members and scalar IF/COALESCE operands remain compute
+            // predicates; storage execution capability alone does not admit them.
             for (const auto& [predicate, pushable] : std::initializer_list<std::pair<const char*, bool>>{
-                    {"b", true}, {"NOT b", true}, {"b OR x < 0", true}, {"b AND y IS NULL", true},
+                    {"b", false}, {"NOT b", false}, {"b OR x < 0", false}, {"b AND y IS NULL", true},
                     {"id > 0", true}, {"x > 0", true}, {"x <= 0", true}, {"x = 10", true}, {"x != 10", true},
                     {"x IS NULL", true}, {"x IS NOT NULL", true}, {"NOT (x > 0)", true},
                     {"x > 0 OR y IS NULL", true}, {"x > 0 AND y < 0", true}, {"(x = 0 OR x = 10) AND (y < 3 OR y IS NULL)", true},
                     {"x + 1 > 0", true}, {"-x < 0", true}, {"Abs(x) > 1", true}, {"x / y > 2", true}, {"x % y > 0", true},
-                    {"COALESCE(x, 0) > 1", true}, {"IF(x > 0, y, 0) >= 0", true}, {"s < u", true}, {"u <= s", true}, {"s = u", true},
+                    {"COALESCE(x, 0) > 1", false}, {"IF(x > 0, y, 0) >= 0", false}, {"s < u", true}, {"u <= s", true}, {"s = u", true},
                     {"f < 0.0", true}, {"f >= 1.5", true}, {"f != 1.5", true}, {"t = 'a'", true}, {"t < 'z'", true},
                     {"t IS NULL", true}, {"t IN ('a', 'beta', 'A')", true},
                     {"false OR x > 0", true}, {"x > 0 AND true", true}, {"x > $p", true}, {"StartsWith(t, 'a')", true}, {"EndsWith(t, 'a')", true},
@@ -4635,7 +4702,7 @@ $round = ($x,$y) -> {return $x;};
                     NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
                 UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
                 UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
-                const auto& ast = *explain.GetStats()->GetAst();
+                const auto ast = *explain.GetStats()->GetAst();
                 if (strategy < 2 && TStringBuf(predicate) == "id > 0") {
                     // Range extraction consumes this entire key predicate,
                     // independently of the OLAP-filter setting. Require its

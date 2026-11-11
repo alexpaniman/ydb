@@ -1536,6 +1536,63 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(arena.Literal({K::String}, std::string{"1e2"}), {K::Decimal, false, 8, 2}))), "100.00");
     }
 
+    Y_UNIT_TEST(ScalarFoldingRestoresSharedRuntimeIdentity) {
+        TExpressionArena arena;
+        const auto firstInput = arena.Column(7, {K::JsonDocument, true});
+        const auto secondInput = arena.Column(7, {K::JsonDocument, true});
+        const auto first = arena.JsonValue(firstInput, "$.a", {1, 1, 2});
+        const auto second = arena.JsonValue(secondInput, "$.a", {12, 1, 13});
+        const auto differentPath = arena.JsonValue(secondInput, "$.b");
+        const auto differentColumn = arena.JsonValue(arena.Column(8, {K::JsonDocument, true}), "$.a");
+        const auto root = arena.Binary(O::Concat, first, second);
+        const TExprId roots[]{root, differentPath, differentColumn};
+        const auto folded = arena.FoldConstants(roots);
+        const auto& joined = arena[folded[0]];
+        UNIT_ASSERT_VALUES_EQUAL(joined.Arguments[0], joined.Arguments[1]);
+        UNIT_ASSERT(arena[joined.Arguments[0]].Op == O::JsonValue);
+        UNIT_ASSERT(joined.Arguments[0] != folded[1] && joined.Arguments[0] != folded[2]);
+        UNIT_ASSERT_VALUES_EQUAL(arena[root].Arguments[0], first);
+        UNIT_ASSERT_VALUES_EQUAL(arena[root].Arguments[1], second);
+        UNIT_ASSERT_VALUES_EQUAL(arena[second].Position.Column, 13);
+        TEvaluationContext context;
+        context.Column = [](TColumnId) { return TValue{{K::JsonDocument, true}, std::string("document")}; };
+        unsigned calls = 0;
+        context.JsonValue = [&](const TValue&, std::string_view path) {
+            ++calls;
+            UNIT_ASSERT_VALUES_EQUAL(path, "$.a");
+            return TValue{{K::Utf8, true}, std::string("value")};
+        };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded[0], context)), "valuevalue");
+        UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+        UNIT_ASSERT(arena.FoldConstants(folded) == folded);
+    }
+
+    Y_UNIT_TEST(ScalarSharingPreservesLiteralBitsAndRuntimeGuards) {
+        TExpressionArena arena;
+        const auto plusZero = arena.Literal({K::Double}, 0.0);
+        const auto minusZero = arena.Literal({K::Double}, -0.0);
+        const auto required = arena.Column(7, {K::Int32});
+        const auto optional = arena.Column(7, {K::Int32, true});
+        const auto first = arena.Ensure(required, arena.Parameter("p", {K::Bool}), "first", {1, 1, 2});
+        const auto second = arena.Ensure(arena.Column(7, {K::Int32}), arena.Parameter("p", {K::Bool}), "first", {12, 1, 13});
+        const auto random1 = arena.Call("RandomNumber", {}), random2 = arena.Call("RandomNumber", {});
+        const TExprId roots[]{plusZero, minusZero, required, optional, first, second, random1, random2};
+        const auto folded = arena.FoldConstants(roots);
+        UNIT_ASSERT(folded[0] != folded[1] && folded[2] != folded[3]);
+        UNIT_ASSERT(folded[4] != folded[5] && folded[6] != folded[7]);
+        UNIT_ASSERT_VALUES_EQUAL(arena[folded[4]].Position.Column, 2);
+        UNIT_ASSERT_VALUES_EQUAL(arena[folded[5]].Position.Column, 13);
+        const auto guarded = arena.If(arena.Parameter("take", {K::Bool}), first, required);
+        const TExprId guardedRoots[]{guarded};
+        const auto shared = arena.FoldConstants(guardedRoots).front();
+        TEvaluationContext context;
+        context.Column = [](TColumnId) { return TValue{{K::Int32}, std::int64_t{7}}; };
+        context.Parameter = [](std::string_view) { return TValue{{K::Bool}, false}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, shared, context)), "7");
+        context.Parameter = [](std::string_view name) { return TValue{{K::Bool}, name == "take"}; };
+        UNIT_ASSERT_EXCEPTION_CONTAINS(Evaluate(arena, shared, context), TFrontendError, "first");
+    }
+
     Y_UNIT_TEST(ConstantFoldingSharesWorkAndPreservesRoots) {
         TExpressionArena arena;
         const auto one = arena.Literal({K::Int32}, std::int64_t{1});

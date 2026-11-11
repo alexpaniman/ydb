@@ -1000,6 +1000,43 @@ TScalar NormalizeValue(TType type, TScalar value) {
     return value;
 }
 
+// Scalar identity ignores source positions but preserves type, exact literal
+// bits, bindings and operand order. Callers decide which operations may share
+// identity; in particular runtime assertions and volatile calls need care.
+template<class TChildClass>
+std::size_t ExpressionHash(const TExprNode& node, const TChildClass& childClass) {
+    std::size_t hash = static_cast<std::size_t>(node.Op);
+    const auto mix = [&](std::size_t value) { hash ^= value + 0x9e3779b9u + (hash << 6) + (hash >> 2); };
+    mix(static_cast<std::size_t>(node.Type.Kind)); mix(node.Type.OptionalDepth);
+    mix(node.Type.Precision); mix(node.Type.Scale); mix(node.Type.Shape);
+    mix(node.ColumnId); mix(std::hash<std::string>{}(node.Name)); mix(node.Value.index());
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, TDecimal>) {
+            mix(static_cast<std::uint64_t>(value.Coefficient));
+            mix(static_cast<std::uint64_t>(static_cast<unsigned __int128>(value.Coefficient) >> 64));
+        } else if constexpr (std::is_same_v<T, double>) {
+            mix(std::bit_cast<std::uint64_t>(value));
+        } else {
+            mix(std::hash<T>{}(value));
+        }
+    }, node.Value);
+    for (auto arg : node.Arguments) mix(childClass(arg));
+    return hash;
+}
+
+template<class TChildClass>
+bool SameExpression(const TExprNode& left, const TExprNode& right, const TChildClass& childClass) {
+    if (left.Op != right.Op || left.Type != right.Type || left.ColumnId != right.ColumnId ||
+        left.Name != right.Name || left.Arguments.size() != right.Arguments.size()) return false;
+    const auto* number = std::get_if<double>(&left.Value);
+    const auto* otherNumber = std::get_if<double>(&right.Value);
+    const bool sameValue = number && otherNumber ?
+        std::bit_cast<std::uint64_t>(*number) == std::bit_cast<std::uint64_t>(*otherNumber) : left.Value == right.Value;
+    return sameValue && std::equal(left.Arguments.begin(), left.Arguments.end(), right.Arguments.begin(),
+        [&](TExprId a, TExprId b) { return childClass(a) == childClass(b); });
+}
+
 } // namespace
 
 TFrontendError::TFrontendError(TSourcePosition position, std::string message)
@@ -2248,36 +2285,12 @@ TExprId TExpressionArena::FactorCommonConjuncts(TExprId root) {
             for (auto arg : node.Arguments) pending.emplace_back(arg, false);
             continue;
         }
-        std::size_t hash = static_cast<std::size_t>(node.Op);
-        const auto mix = [&](std::size_t value) { hash ^= value + 0x9e3779b9u + (hash << 6) + (hash >> 2); };
-        mix(static_cast<std::size_t>(node.Type.Kind)); mix(node.Type.OptionalDepth);
-        mix(node.Type.Precision); mix(node.Type.Scale); mix(node.Type.Shape);
-        mix(node.ColumnId); mix(std::hash<std::string>{}(node.Name)); mix(node.Value.index());
-        std::visit([&](const auto& value) {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, TDecimal>) {
-                mix(static_cast<std::uint64_t>(value.Coefficient));
-                mix(static_cast<std::uint64_t>(static_cast<unsigned __int128>(value.Coefficient) >> 64));
-            } else if constexpr (std::is_same_v<T, double>) {
-                mix(std::bit_cast<std::uint64_t>(value));
-            } else {
-                mix(std::hash<T>{}(value));
-            }
-        }, node.Value);
-        for (auto arg : node.Arguments) mix(classes.at(arg));
+        const auto childClass = [&](TExprId id) { return classes.at(id); };
+        const auto hash = ExpressionHash(node, childClass);
         auto representative = id;
         const auto [begin, end] = representatives.equal_range(hash);
         for (auto it = begin; it != end; ++it) {
-            const auto& other = (*this)[it->second];
-            if (node.Op != other.Op || node.Type != other.Type || node.ColumnId != other.ColumnId ||
-                node.Name != other.Name || node.Arguments.size() != other.Arguments.size()) continue;
-            const auto* number = std::get_if<double>(&node.Value);
-            const auto* otherNumber = std::get_if<double>(&other.Value);
-            const bool sameValue = number && otherNumber ?
-                std::bit_cast<std::uint64_t>(*number) == std::bit_cast<std::uint64_t>(*otherNumber) : node.Value == other.Value;
-            if (!sameValue) continue;
-            if (std::equal(node.Arguments.begin(), node.Arguments.end(), other.Arguments.begin(),
-                    [&](TExprId a, TExprId b) { return classes.at(a) == classes.at(b); })) {
+            if (SameExpression(node, (*this)[it->second], childClass)) {
                 representative = it->second;
                 break;
             }
@@ -2985,7 +2998,22 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         bool Total;
     };
     std::unordered_map<TExprId, TRewritten> rewritten;
+    std::unordered_multimap<std::size_t, TExprId> representatives;
     std::vector<std::pair<TExprId, bool>> pending;
+    // Restore shared scalar identity at the same boundary as folding, before
+    // relational rules inspect expression DAGs. This does not evaluate runtime
+    // operations or move them across guards; original roots remain immutable.
+    const auto intern = [&](TExprId id) {
+        const auto& node = (*this)[id];
+        if (!node.Repeatable || node.Op == O::Ensure || node.Op == O::Unwrap) return id;
+        const auto identity = [](TExprId child) { return child; };
+        const auto hash = ExpressionHash(node, identity);
+        const auto [begin, end] = representatives.equal_range(hash);
+        for (auto it = begin; it != end; ++it)
+            if (SameExpression(node, (*this)[it->second], identity)) return it->second;
+        representatives.emplace(hash, id);
+        return id;
+    };
     // Conservative totality for this traversal only. Unknown/runtime operations
     // remain observable; errors and nondeterministic calls cannot be discarded
     // merely because another Boolean operand determines the result.
@@ -3097,7 +3125,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             if (!ready) {
                 const auto& node = (*this)[id];
                 if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) {
-                    rewritten.emplace(id, TRewritten{id, true});
+                    rewritten.emplace(id, TRewritten{intern(id), true});
                     continue;
                 }
                 if (!node.Arguments.empty()) {
@@ -3117,7 +3145,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
                 changed |= replacement.Id != arg;
                 arg = replacement.Id;
             }
-            const auto result = fold(std::move(node), id, changed, firstTotal);
+            const auto result = intern(fold(std::move(node), id, changed, firstTotal));
             rewritten.emplace(id, TRewritten{result, total || (*this)[result].Op == O::Literal});
         }
     }

@@ -1306,7 +1306,10 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT(IsSameAnnotation(*backend, *ExportNativeType(native, ctx, &imported)));
         }
         const auto* nestedTuple = ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{ExportNativeType(state.Optional(), ctx, &arena)});
-        UNIT_ASSERT_EXCEPTION(ImportNativeType(*nestedTuple, &imported), TFrontendError);
+        const auto nativeNestedTuple = ImportNativeType(*nestedTuple, &imported);
+        UNIT_ASSERT_VALUES_EQUAL(imported.TupleItems(nativeNestedTuple).size(), 1);
+        UNIT_ASSERT(imported.TupleItems(nativeNestedTuple).front() == imported.ImportType(arena, state.Optional()));
+        UNIT_ASSERT(IsSameAnnotation(*nestedTuple, *ExportNativeType(nativeNestedTuple, ctx, &imported)));
         const auto* nestedOptional = ctx.MakeType<TOptionalExprType>(ctx.MakeType<TOptionalExprType>(ctx.MakeType<TDataExprType>(EDataSlot::Uint64)));
         const auto nativeOptional = ImportNativeType(*nestedOptional, &imported);
         UNIT_ASSERT_VALUES_EQUAL(nativeOptional.OptionalDepth, 2);
@@ -2172,7 +2175,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(OlapProjectionsStayNativeAndPreserveLiveJsonInputs) {
         using namespace NFrontend;
         using K = ETypeKind;
-        for (int scenario = 0; scenario < 10; ++scenario) {
+        for (int scenario = 0; scenario < 11; ++scenario) {
             NTests::TIdTestContext f;
             f.Config->OptEnableOlapPushdown = true;
             f.Config->OptEnableOlapPushdownProjections = true;
@@ -2194,6 +2197,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             auto value = json;
             if (scenario == 0) value = arena->Cast(json, {K::Double});
             if (scenario == 5) value = arena->If(arena->Unary(EOpcode::IsNull, input), json, arena->Literal({K::Utf8}, std::string("fallback")));
+            if (scenario == 10) value = arena->Binary(EOpcode::Concat, json,
+                arena->JsonValue(arena->Column(doc, {K::JsonDocument, true}), "$.a"));
             const auto expression = [&](TExprId id) { return TExpression::FromNative(arena, id, &f.Props); };
             auto read = f.Read({key, doc, unused}); read->StorageType = NYql::EStorageType::ColumnStorage;
             read->TableRef = MakeRboTable(*metadata);
@@ -2217,10 +2222,11 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             });
             TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
             UNIT_ASSERT(ComputeTypesWithoutBackend(*root, context) == IGraphTransformer::TStatus::Ok);
+            TConstantFoldingStage().RunStage(*root, context);
             ComputePlanLiveness(*root);
             TPushOlapProjectionRule rule;
             const auto pushed = rule.SimpleMatchAndApply(map, context, root->PlanProps);
-            const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9;
+            const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9 || scenario == 10;
             UNIT_ASSERT_VALUES_EQUAL_C(pushed != map, eligible, scenario);
             root->SetChild(0, pushed); root->RecomputeOutputIUsSubtree(); root->ComputeParents();
             UNIT_ASSERT(ComputeTypesWithoutBackend(*root, context) == IGraphTransformer::TStatus::Ok);
@@ -3111,7 +3117,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT COALESCE(NULL, CAST('bad' AS Int32), 7)",
             "SELECT CASE WHEN true THEN 7 ELSE 1/0 END",
             "SELECT 2 IN (1, NULL)", "SELECT NULL IS NULL", "SELECT NULL == NULL", "SELECT NULL AND NULL", "SELECT 4 IS NOT NULL",
-            "SELECT Length('abcd')", "SELECT Contains('abcd', 'bc')",
+            "SELECT Length('abcd')", "SELECT String::Contains('abcd', 'bc')",
             "SELECT StartsWith('abcd', 'ab')", "SELECT EndsWith('abcd', 'cd')", "SELECT 'a' || 'b'",
             "SELECT ABS(-3)", "SELECT NOT false", "SELECT true AND NULL", "SELECT true OR NULL",
             "SELECT Date('2020-01-02')", "SELECT Timestamp('2020-01-02T03:04:05Z')",
@@ -3156,7 +3162,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT DateTime::MakeDate(DateTime::ShiftMonths(Date('2105-12-31'), 1))",
             "SELECT DateTime::GetYear(DateTime::ShiftMonths(IF(false, Date('2000-02-29')), 1))",
             "SELECT DateTime::MakeTimestamp(DateTime::Split(IF(false, Timestamp('2020-01-01T00:00:00Z'))))",
-            "SELECT Lower('AbC')", "SELECT Upper('AbC')", "SELECT Lower(CAST(NULL AS String))",
+            "SELECT String::AsciiToLower('AbC')", "SELECT String::AsciiToUpper('AbC')", "SELECT String::AsciiToLower(CAST(NULL AS String))",
             "SELECT [1,2][0u]", "SELECT [1,2][2u]", "SELECT [1,2][-1]",
             "SELECT [1, IF(false, 2)][0u]", "SELECT [1, IF(false, 2)][1u]", "SELECT [1, IF(false, 2)][2u]",
             "SELECT Substring('abcdef', 2, 3)", "SELECT Substring('abcdef', NULL, 3)",
@@ -3166,12 +3172,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT CAST(9223372586610589697ul AS Float)", "SELECT CAST(4611686293305294849L AS Float)",
             "SELECT CAST(Double('-4.9406564584124654e-324') AS Uint64)",
             "SELECT CAST(Float('-1e-40') AS Uint8)",
-            "SELECT CAST(12 AS String)", "SELECT CAST(Utf8('hello') AS String)",
-            "SELECT 'abc' LIKE '%b%'", "SELECT 'ab' LIKE '%a%b%'",
-            "SELECT 'ab' LIKE 'a%b'", "SELECT 'abc' LIKE 'a%b'", "SELECT 'abb' LIKE 'a%b'",
-            "SELECT 'ab' LIKE 'ab%b'", "SELECT 'aba' LIKE '%ab%ba%'",
-            "SELECT 'abba' LIKE 'a%%b%a'", "SELECT Utf8('abc') LIKE '%a%c%'",
-            "SELECT IF(false, 'abc') LIKE '%a%b%'", "SELECT NULL LIKE '%a%b%'"
+            "SELECT CAST(12 AS String)", "SELECT CAST(Utf8('hello') AS String)"
         }) {
             try {
                 CheckScalar(sql);
@@ -3180,6 +3181,28 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             }
         }
         UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
+    Y_UNIT_TEST(TerminalSqlLikeExecution) {
+        // The native evaluator delegates pattern matching to a runtime service.
+        // Supply independent expected values and execute the emitted graph to
+        // check both the SQL binding and the actual matching implementation.
+        using namespace NFrontend;
+        for (const auto& [sql, expected] : std::vector<std::pair<const char*, bool>>{
+            {"SELECT 'abc' LIKE '%b%'", true}, {"SELECT 'ab' LIKE '%a%b%'", true},
+            {"SELECT 'ab' LIKE 'a%b'", true}, {"SELECT 'abc' LIKE 'a%b'", false},
+            {"SELECT 'abb' LIKE 'a%b'", true}, {"SELECT 'ab' LIKE 'ab%b'", false},
+            {"SELECT 'aba' LIKE '%ab%ba%'", false}, {"SELECT 'abba' LIKE 'a%%b%a'", true},
+            {"SELECT Utf8('abc') LIKE '%a%c%'", true},
+            {"SELECT IF(false, 'abc') LIKE '%a%b%'", false}, {"SELECT NULL LIKE '%a%b%'", false}}) {
+            const auto compiled = CompileNative(sql, [](auto, auto pos) -> TCatalogTable {
+                throw TFrontendError(pos, "unexpected table lookup");
+            });
+            const auto& program = compiled.Program->Get();
+            TEvaluationContext evaluation;
+            evaluation.Like = [&](const TValue&, std::string_view, std::string_view, bool) { return expected; };
+            CheckScalar(program.Expressions, Projection(program), sql, evaluation);
+        }
     }
 }
 } // namespace NKikimr::NKqp

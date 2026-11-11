@@ -218,6 +218,8 @@ public:
 
     // Fold shared constant DAGs once across all roots. Keep runtime assertions
     // deferred, preserve types, and bound materialized strings and list storage.
+    // Structurally identical repeatable scalars share an ID in the returned DAG.
+    // Original roots stay immutable; assertions and volatile nodes are not interned.
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:
