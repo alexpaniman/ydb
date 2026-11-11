@@ -1695,6 +1695,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             metadata->KeyColumnNames = {"id"};
             for (const auto* name : {"id", "g", "x", "payload"}) {
                 auto& column = metadata->Columns[name]; column.Type = "Int32"; column.NotNull = TStringBuf(name) != "g";
+                column.TypeInfo = NScheme::TTypeInfo(NScheme::NTypeIds::Int32);
             }
             f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
             for (const char* name : reverse ? TVector<const char*>{"B", "A", "0_async", "0_unready", "0_json", "0_json_compact"}
@@ -2241,6 +2242,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             for (const auto* name : {"key", "doc", "unused"}) {
                 auto& column = metadata->Columns[name]; column.Name = name;
                 column.Type = TStringBuf(name) == "doc" ? "JsonDocument" : "Int32";
+                column.TypeInfo = NScheme::TTypeInfo(TStringBuf(name) == "doc" ? NScheme::NTypeIds::JsonDocument : NScheme::NTypeIds::Int32);
             }
             auto& table = f.Tables->GetOrAddTable("ut", "/Root", metadata->Name);
             table.Metadata = metadata;

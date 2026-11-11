@@ -20,6 +20,7 @@ SRCS(
 # debug-section limit. Keep source/stack locations for these files; production
 # code and the other tests retain their usual debug information.
 IF (OS_LINUX AND CLANG)
+    SRC(kqp_native_catalog_ut.cpp -gline-tables-only)
     SRC(kqp_native_aggregate_filter_ut.cpp -gline-tables-only)
     SRC(kqp_native_compilation_time_ut.cpp -gline-tables-only)
     SRC(kqp_native_olap_ut.cpp -gline-tables-only)
@@ -37,6 +38,7 @@ IF (OS_LINUX AND CLANG)
     SRC(kqp_native_host_ut.cpp -gline-tables-only)
     SRC(kqp_rbo_yql_ut.cpp -gline-tables-only)
 ELSE()
+    SRCS(kqp_native_catalog_ut.cpp)
     SRCS(kqp_native_aggregate_filter_ut.cpp)
     SRCS(kqp_native_compilation_time_ut.cpp)
     SRCS(kqp_native_reference_join_order_ut.cpp)

@@ -4,6 +4,7 @@
 #include "kqp_statement_rewrite.h"
 #include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_catalog.h>
 
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/external_sources/external_source_factory.h>
@@ -1598,8 +1599,7 @@ private:
                                 }
                                 else if (item.IsDefaultFromLiteral()) writes.Defaults.emplace_back(name, F::EColumnDefault::Literal);
                                 else if (item.IsDefaultFromSequence()) writes.Defaults.emplace_back(name, F::EColumnDefault::Sequence);
-                                auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);
-                                type.OptionalDepth = !item.NotNull;
+                                const auto type = ImportNativeStorageType(item.TypeInfo, item.NotNull, pos);
                                 table.Columns.push_back({std::string(name), type});
                             };
                             if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);

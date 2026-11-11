@@ -288,6 +288,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             table->KeyColumnNames = {"id"};
             for (const auto* name : {"id", "g"}) {
                 auto& column = table->Columns[name]; column.Type = "Int32"; column.NotNull = true;
+                column.TypeInfo = NScheme::TTypeInfo(NScheme::NTypeIds::Int32);
             }
             auto index = MakeIntrusive<TKikimrTableMetadata>();
             index->Name = "/Root/table/by_g/indexImplTable";
