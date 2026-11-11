@@ -39,6 +39,12 @@ tests, or profiles.
 Choose an available fixed CPU set for both variants; the example uses CPUs 2–5.
 The manifest records the inherited CPU affinity, and resume requires the same
 set. Untraced controls restore this affinity before starting their runners.
+For small changes, repeat the same comparison into another output directory
+with `--reverse-pair-order`. This reverses each pair while retaining the variant
+labels, query order and configuration. Record both results: a change that flips
+direction with execution order does not establish a performance improvement.
+The manifest records pair order, resume checks it, and the corresponding
+untraced control preserves it.
 
 Every request remains in the results, including pre-migration compilation
 failures. Native failure, missing native trace phases, or fallback makes the

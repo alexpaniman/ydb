@@ -190,6 +190,7 @@ def main():
     ap.add_argument('--before', type=Path, required=True)
     ap.add_argument('--after', type=Path, required=True)
     ap.add_argument('--before-native', action='store_true', help='Compare two native checkpoints; require native coverage on both')
+    ap.add_argument('--reverse-pair-order', action='store_true', help='Reverse the execution order of each before/after pair')
     ap.add_argument('--limit', type=int)
     ap.add_argument('--workloads', default='1c,tpch,tpcds,clickbench,medium,tiny,tpch-perf')
     ap.add_argument('--warmups', type=int, default=5)
@@ -224,12 +225,13 @@ def main():
                   runner_sha256=digest(Path(__file__)),layout_sha256=digest(HERE/'compilation.layout.json'),
                   binaries={mode:str(path) for mode,path in binaries.items()},binary_sha256=binary_hashes,patch_sha256=hashlib.sha256(patch).hexdigest(),
                   warmups=args.warmups,repeats=args.repeats,peephole=False,threads=1,
-                  cpu_affinity=sorted(os.sched_getaffinity(0)),limited=args.limit,batches=[])
+                  cpu_affinity=sorted(os.sched_getaffinity(0)),reverse_pair_order=args.reverse_pair_order,limited=args.limit,batches=[])
     if existing:
         assert existing.get('native_modes', ['after']) == native_modes, 'Resume native modes changed'
         for key in ('binary_sha256', 'warmups', 'repeats', 'limited'):
             assert existing[key] == manifest[key], ('Resume settings changed', key)
         assert existing.get('cpu_affinity') == manifest['cpu_affinity'], 'Resume CPU affinity changed or was not recorded'
+        assert existing.get('reverse_pair_order', False) == args.reverse_pair_order, 'Resume pair order changed'
         manifest = dict(existing, batches=[])
     configs={}
     for mode in ('before','after'):
@@ -252,7 +254,7 @@ LogConfig {{ DefaultLevel: 2 }}
 '''
         write(out/f'variant-{mode}.conf',configs[mode])
     write(out/'limits.conf','MaxTableColumns: 1000\nMaxTableIndices: 100\nMaxPaths: 100000\n')
-    batch_number=0
+    batch_number=int(args.reverse_pair_order)
     for name in args.workloads.split(','):
         queries,schema=corpus.workload(name,root,args.framework.resolve())
         if args.limit: queries=queries[:args.limit]
