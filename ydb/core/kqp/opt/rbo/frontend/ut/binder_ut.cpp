@@ -657,7 +657,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             }
             return result;
         };
-        // Dynamic programming oracle, independent of the ordered-search binder.
+        // Dynamic programming oracle, independent of the native simplifications
+        // and terminal runtime matcher.
         auto match = [](std::string_view text, std::string_view pattern) {
             std::vector<bool> previous(text.size() + 1), current(text.size() + 1);
             previous[0] = true;
@@ -678,6 +679,10 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             const auto expression = Find(program, ERelation::Map).Definitions[0].Expression;
             UNIT_ASSERT(program.Expressions[expression].Type == (TType{ETypeKind::Bool}));
             TEvaluationContext context;
+            context.Like = [&](const TValue& value, std::string_view text, std::string_view escape, bool sensitive) {
+                UNIT_ASSERT(escape.empty() && sensitive);
+                return match(std::get<std::string>(value.Data), text);
+            };
             for (const auto& input : inputs) {
                 context.Parameter = [&](auto) { return TValue{{ETypeKind::String}, input}; };
                 UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(Evaluate(program.Expressions, expression, context).Data), match(input, pattern), input + " LIKE " + pattern);
@@ -685,6 +690,21 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         }
         UNIT_ASSERT(CompileNative("SELECT 'abc' LIKE 'a_c'", Catalog).Program);
         UNIT_ASSERT(CompileNative("DECLARE $p AS String; SELECT 'abc' LIKE $p", Catalog).Program);
+    }
+
+    Y_UNIT_TEST(ComplexLikeRetainsOnePredicateThroughBinding) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(
+                "DECLARE $s AS String?; SELECT $s NOT LIKE '%special%requests%' AS v", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& root = program.Expressions[Find(program, ERelation::Map).Definitions[0].Expression];
+            UNIT_ASSERT(root.Op == EOpcode::Not);
+            const auto& match = program.Expressions[root.Arguments[0]];
+            UNIT_ASSERT(match.Op == EOpcode::Like);
+            UNIT_ASSERT(match.Type == TType{ETypeKind::Bool});
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(program.Expressions[match.Arguments[1]].Value), "%special%requests%");
+        }
     }
 
     Y_UNIT_TEST(LinearProjectionGrowth) {

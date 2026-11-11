@@ -189,7 +189,7 @@ bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFront
         if (!visited.insert((std::uint64_t{id} << 1) | predicate).second) continue;
         const auto& node = arena[id];
         bool childPredicates = false;
-        if (node.Op == O::RegexMatch || node.Op == O::RegexGrep) {
+        if (node.Op == O::RegexMatch || node.Op == O::RegexGrep || node.Op == O::Like || node.Op == O::ILike) {
             if (!allowScalarApply || !allowRegexp) return false;
         } else if (OlapIdentityConversion(arena, node)) childPredicates = predicate;
         else if (predicate) {
@@ -210,7 +210,6 @@ bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFront
                         if (!allowScalarApply) return false;
                         childPredicates = true;
                         break;
-                    case O::Like: case O::ILike: if (!allowScalarApply) return false; break;
                     default: return false;
                 }
             }

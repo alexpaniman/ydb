@@ -278,7 +278,10 @@ boundaries and carry aggregate payloads; shared collection shapes are interned.
 Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
 JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differential
-tests. Static direct, inline `Udf(String::...)`, and bound callable forms resolve
+tests. Complex LIKE patterns remain atomic native predicates through RBO so
+selectivity and storage admission retain the existing regex policy. Their
+runtime matcher is constructed only during emission. Static direct, inline
+`Udf(String::...)`, and bound callable forms resolve
 to the same checked native string functions. Arbitrary UDF resolution is excluded.
 `Re2::Match(pattern)` and `Re2::Grep(pattern[, NULL])` bind configured native
 matchers, including aliases and lexical captures. Their Boolean operations

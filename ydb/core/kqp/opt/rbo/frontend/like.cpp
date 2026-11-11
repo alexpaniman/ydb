@@ -82,48 +82,26 @@ TExprId BuildLike(TExpressionArena& arena, TExprId input, TExprId patternId,
         const auto op = leading && trailing ? EOpcode::Contains : leading ? EOpcode::EndsWith : trailing ? EOpcode::StartsWith : EOpcode::Equal;
         return arena.Binary(op, input, literal, pos);
     }
-    // YQL uses regex matching for these forms: NULL/invalid UTF-8 returns
-    // false. A leading literal also adds a nullable prefix predicate.
-    // Preserve both its values and its metadata without retaining regexes.
-    const bool regexSemantics = pieces.size() > 2 || leading || trailing;
-    if (arena[input].Type.Kind == ETypeKind::Null)
-        return arena.Literal({ETypeKind::Bool, !regexSemantics || !leading}, regexSemantics ? TScalar{false} : TScalar{std::monostate{}}, pos);
-    if (!arena[input].Type.IsString()) throw TFrontendError(pos, "LIKE requires a string input");
-    const bool nullable = arena[input].Type.OptionalDepth;
-    auto result = regexSemantics ? arena.Unary(EOpcode::IsNotNull, arena.Cast(input, {ETypeKind::Utf8}, pos), pos) :
-        arena.Literal({ETypeKind::Bool}, true, pos);
-    // % consumes any byte sequence. Ordered searches need no regex object,
-    // substring copies or semantic lowering in the execution model.
-    input = arena.Cast(input, {ETypeKind::String}, pos);
-    const auto zero = arena.Literal({ETypeKind::Uint32}, std::uint64_t{0}, pos);
-    auto offset = zero;
-    for (std::size_t i = 0; i < pieces.size(); ++i) {
-        const auto literal = arena.Literal({ETypeKind::String}, pieces[i], pos);
-        const auto length = arena.Literal({ETypeKind::Uint32}, static_cast<std::uint64_t>(pieces[i].size()), pos);
-        TExprId matches;
-        if (i == 0 && !leading) {
-            matches = arena.Binary(EOpcode::StartsWith, input, literal, pos);
-            offset = length;
-        } else if (i + 1 == pieces.size() && !trailing) {
-            // A suffix may occur earlier too; require the final occurrence
-            // to start after the already consumed prefix (no overlap).
-            const auto end = arena.Binary(EOpcode::Add, arena.Convert(offset, {ETypeKind::Uint64}, pos), arena.Convert(length, {ETypeKind::Uint64}, pos), pos);
-            const auto fits = arena.Binary(EOpcode::GreaterEqual, arena.Unary(EOpcode::Length, input, pos), end, pos);
-            matches = arena.Binary(EOpcode::And, arena.Binary(EOpcode::EndsWith, input, literal, pos), fits, pos);
+    // Keep complex matching atomic through RBO. Expanding it into searches
+    // changes the predicates seen by storage admission and selectivity. Its
+    // runtime matcher is constructed only at the terminal emission boundary.
+    auto result = arena.Like(input, patternId, std::move(escape), pos);
+    if (!leading) {
+        const auto prefix = arena.Literal(pattern.Type.Required(), pieces.front(), pos);
+        const auto starts = arena.Binary(EOpcode::StartsWith, input, prefix, pos);
+        if (pieces.size() == 2 && !trailing) {
+            // The established prefix%suffix simplification also checks length
+            // so the prefix and suffix cannot overlap.
+            const auto length = arena.Literal({ETypeKind::Uint32},
+                static_cast<std::uint64_t>(pieces.front().size() + pieces.back().size()), pos);
+            const auto fits = arena.Binary(EOpcode::GreaterEqual, arena.Unary(EOpcode::Length, input, pos), length, pos);
+            const auto suffix = arena.Literal(pattern.Type.Required(), pieces.back(), pos);
+            result = arena.Binary(EOpcode::And, fits, arena.Binary(EOpcode::And, starts,
+                arena.Binary(EOpcode::EndsWith, input, suffix, pos), pos), pos);
         } else {
-            const auto found = arena.Find(input, literal, offset, pos);
-            matches = arena.Unary(EOpcode::IsNotNull, found, pos);
-            const TExprId alternatives[]{found, zero};
-            offset = arena.Binary(EOpcode::Add, arena.Coalesce(alternatives, pos), length, pos);
+            result = arena.Binary(EOpcode::And, starts, result, pos);
         }
-        result = arena.Binary(EOpcode::And, result, matches, pos);
     }
-    if (regexSemantics) {
-        const TExprId alternatives[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
-        result = arena.Coalesce(alternatives, pos);
-        if (!leading && nullable) result = arena.Convert(result, {ETypeKind::Bool, true}, pos);
-    } else if (nullable)
-        result = arena.If(arena.Unary(EOpcode::IsNull, input, pos), arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
     return result;
 }
 

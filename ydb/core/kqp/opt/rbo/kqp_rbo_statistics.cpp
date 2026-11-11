@@ -42,6 +42,7 @@ class TNativeSelectivity {
     static constexpr ui64 NonConstant = EmptyAttribute + 1;
     static constexpr ui64 Parameter = EmptyAttribute + 2;
     static constexpr ui64 NoAttribute = EmptyAttribute + 3;
+    static constexpr ui64 RegexAttribute = EmptyAttribute + 4;
 
 public:
     TNativeSelectivity(const TExpressionArena& arena, const TOptimizerStatistics& stats, TNativePredicateStatistics* usage = nullptr)
@@ -482,6 +483,11 @@ private:
             }
             return leaf(originalColumn == Missing ? NoAttribute : Arena[originalColumn].ColumnId,
                 negative ? 1 - value : value, originalColumn);
+        }
+        if (node.Op == O::Like || node.Op == O::ILike || node.Op == O::RegexMatch || node.Op == O::RegexGrep) {
+            // The existing estimator groups runtime regex predicates under
+            // one synthetic attribute, with 0.5 selectivity in either polarity.
+            return leaf(RegexAttribute, 0.5);
         }
         // Unsupported predicates are omitted from logical groups, exactly as
         // by the existing estimator, rather than inventing a 50% selectivity.

@@ -934,6 +934,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         TVector<TExprId> predicates{unknown, arena.Unary(O::IsNull, b), arena.Unary(O::IsNotNull, b),
             arena.Binary(O::Contains, text, needle), arena.Binary(O::StartsWith, text, needle),
             arena.Binary(O::Contains, text, arena.Parameter("s", {K::String})),
+            arena.Like(text, needle), arena.Like(text, needle, {}, {}, false),
+            arena.Regex(text, needle, true), arena.Regex(text, needle, false),
             arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one),
             arena.Binary(O::Equal, arena.Binary(O::Add, a, b), one)};
         for (auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual}) {

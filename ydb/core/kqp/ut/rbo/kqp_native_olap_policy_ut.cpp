@@ -65,7 +65,8 @@ Y_UNIT_TEST_SUITE(KqpNativeOlapPolicy) {
     Y_UNIT_TEST(RegexAdmissionPreservesExistingConfiguration) {
         using namespace NFrontend;
         using namespace NYql;
-        for (const bool nullable : {false, true}) for (const bool fullMatch : {false, true})
+        for (const bool nullable : {false, true})
+        for (const auto op : {EOpcode::RegexMatch, EOpcode::RegexGrep, EOpcode::Like, EOpcode::ILike})
         for (const bool parameter : {false, true}) for (const bool negate : {false, true}) {
             NTests::TIdTestContext f;
             auto& arena = *f.Props.NativeExpressions;
@@ -74,7 +75,10 @@ Y_UNIT_TEST_SUITE(KqpNativeOlapPolicy) {
             const TType string{ETypeKind::String, nullable};
             const auto pattern = parameter ? arena.Parameter("pattern", {ETypeKind::String})
                 : arena.Literal({ETypeKind::String}, std::string{"a.*"});
-            auto root = arena.Regex(arena.Column(id, string), pattern, fullMatch);
+            const bool fullMatch = op != EOpcode::RegexGrep;
+            auto root = op == EOpcode::Like || op == EOpcode::ILike
+                ? arena.Like(arena.Column(id, string), pattern, {}, {}, op == EOpcode::Like)
+                : arena.Regex(arena.Column(id, string), pattern, fullMatch);
             if (negate) root = arena.Unary(EOpcode::Not, root);
 
             // Independently build the typed legacy runtime call. The policy
