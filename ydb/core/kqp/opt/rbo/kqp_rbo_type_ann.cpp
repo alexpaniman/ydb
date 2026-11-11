@@ -36,9 +36,13 @@ TStatus TOpRoot::ComputeTypes(TRBOContext& ctx) {
                 pending.emplace_back(child, op);
             }
         }
-        for (const auto call : op->GetSubplanIUs(PlanProps.Subplans)) {
-            if (subplans.Add(call)) {
-                pending.emplace_back(PlanProps.Subplans.At(call).Plan.Get(), nullptr);
+        // With no subplans there are no cross-plan edges to discover. Avoid
+        // collecting every operator's scalar dependencies just to find none.
+        if (!PlanProps.Subplans.Empty()) {
+            for (const auto call : op->GetSubplanIUs(PlanProps.Subplans)) {
+                if (subplans.Add(call)) {
+                    pending.emplace_back(PlanProps.Subplans.At(call).Plan.Get(), nullptr);
+                }
             }
         }
     }
