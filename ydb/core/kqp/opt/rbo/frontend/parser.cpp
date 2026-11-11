@@ -200,9 +200,11 @@ public:
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
             std::string_view content = Text.substr(start + 1, Position.Offset - start - 2);
             std::string_view suffix;
-            if (!identifier && (Peek() == 'u' || Peek() == 'U' || Peek() == 's' || Peek() == 'S') &&
+            if (!identifier && (Peek() == 'u' || Peek() == 'U' || Peek() == 's' || Peek() == 'S' ||
+                    Peek() == 'j' || Peek() == 'J' || Peek() == 'y' || Peek() == 'Y') &&
                 !Alpha(Peek(1)) && !Digit(Peek(1))) {
-                suffix = Peek() == 'u' || Peek() == 'U' ? "U" : "S";
+                suffix = Peek() == 'u' || Peek() == 'U' ? "U" : Peek() == 's' || Peek() == 'S' ? "S" :
+                    Peek() == 'j' || Peek() == 'J' ? "J" : "Y";
                 Advance();
             }
             if (!identifier && (Alpha(Peek()) || Peek() == '@'))
@@ -969,7 +971,8 @@ private:
         }
         if (token.Kind == EToken::String) {
             ++Index;
-            return Add(token.Word == "U" ? ESyntaxKind::Utf8String : token.Word == "S" ? ESyntaxKind::ByteString : ESyntaxKind::String,
+            return Add(token.Word == "U" ? ESyntaxKind::Utf8String : token.Word == "S" ? ESyntaxKind::ByteString :
+                token.Word == "J" ? ESyntaxKind::JsonString : token.Word == "Y" ? ESyntaxKind::YsonString : ESyntaxKind::String,
                 pos, std::string(token.Text));
         }
         if (Is("CAST") || Is("BITCAST")) {

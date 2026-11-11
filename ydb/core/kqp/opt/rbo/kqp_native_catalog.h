@@ -35,6 +35,7 @@ inline NFrontend::TType ImportNativeStorageType(const NScheme::TTypeInfo& storag
         case NScheme::NTypeIds::Interval64: return {K::Interval64, nullable};
         case NScheme::NTypeIds::Uuid: return {K::Uuid, nullable};
         case NScheme::NTypeIds::Json: return {K::Json, nullable};
+        case NScheme::NTypeIds::Yson: return {K::Yson, nullable};
         case NScheme::NTypeIds::JsonDocument: return {K::JsonDocument, nullable};
         case NScheme::NTypeIds::Decimal: {
             const auto& decimal = storage.GetDecimalType();

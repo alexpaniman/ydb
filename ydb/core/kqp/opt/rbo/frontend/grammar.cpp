@@ -325,8 +325,9 @@ private:
                 return Add(ESyntaxKind::Column, node, Identifier(std::move(text), node));
             if (!text.empty() && (text[0] == '\'' || text[0] == '"' || text.starts_with("@@"))) {
                 const auto suffix = Upper(text.substr(text.size() - 1));
-                if (suffix == "U" || suffix == "S") text.pop_back();
-                return Add(suffix == "U" ? ESyntaxKind::Utf8String : suffix == "S" ? ESyntaxKind::ByteString : ESyntaxKind::String,
+                if (suffix == "U" || suffix == "S" || suffix == "J" || suffix == "Y") text.pop_back();
+                return Add(suffix == "U" ? ESyntaxKind::Utf8String : suffix == "S" ? ESyntaxKind::ByteString :
+                    suffix == "J" ? ESyntaxKind::JsonString : suffix == "Y" ? ESyntaxKind::YsonString : ESyntaxKind::String,
                     node, Decode(text, node));
             }
             Unsupported(node, EFeature::Expression, "literal " + text);

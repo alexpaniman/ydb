@@ -35,7 +35,7 @@ public:
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
     Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval,
-    Date32, Datetime64, Timestamp64, Interval64, Uuid, Json, JsonDocument,
+    Date32, Datetime64, Timestamp64, Interval64, Uuid, Json, JsonDocument, Yson,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
     Calendar, Tuple, List,
@@ -61,6 +61,7 @@ struct TType {
     bool IsInterval() const;
     bool IsExtendedTemporal() const;
     bool IsJson() const { return Kind == ETypeKind::Json || Kind == ETypeKind::JsonDocument; }
+    bool IsDocument() const { return IsJson() || Kind == ETypeKind::Yson; }
     bool IsSigned() const;
     bool IsCollection() const { return Kind == ETypeKind::Tuple || Kind == ETypeKind::List; }
     std::string ToString() const;

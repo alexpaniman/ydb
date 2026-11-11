@@ -45,7 +45,7 @@ using NDetail::OlapBinaryName;
 using NDetail::OlapIdentityConversion;
 
 bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node, bool filterTruth) {
-    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
+    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsDocument() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
     if (OlapIdentityConversion(arena, node)) return true;
     if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) {
         const bool temporal = (node.Op == O::Add || node.Op == O::Subtract) &&
@@ -79,7 +79,7 @@ bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend
 }
 
 bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
-    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() ||
+    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsDocument() ||
         node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar) return false;
     if (!OlapBinaryName(node.Op).empty()) return true;
     switch (node.Op) {

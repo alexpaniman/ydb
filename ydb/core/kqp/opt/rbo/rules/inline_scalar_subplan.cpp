@@ -26,7 +26,7 @@ std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const 
     TAggregationIUs traits;
     traits.Add(countIU, TOpAggregationTraits{rowIU, "count"});
     // This is need to get the actual value, we emit ensure that we get only one row, so its minimum is the value.
-    traits.Add(valueStateIU, TOpAggregationTraits{valueIU, nativeType.IsJson() ? "some" : "min"});
+    traits.Add(valueStateIU, TOpAggregationTraits{valueIU, nativeType.IsDocument() ? "some" : "min"});
     auto aggregate = MakeIntrusive<TOpAggregate>(rowMap, traits, groupKeys, EOpPhase::Undefined, /*distinctAll=*/false, pos);
 
     auto atMostOne =

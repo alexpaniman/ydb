@@ -9,6 +9,7 @@ RUN_PYTHON3(
 
 SRCS(
     catalog.cpp
+    document.cpp
     frontend.cpp
     explain.cpp
     execution.cpp
@@ -25,6 +26,8 @@ PEERDIR(
     contrib/libs/antlr4_cpp_runtime
     contrib/libs/double-conversion
     library/cpp/string_utils/url
+    library/cpp/json
+    library/cpp/yson_pull
 )
 
 END()

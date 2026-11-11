@@ -700,7 +700,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                     "SELECT JSON_VALUE(j, '$ ? (@.a > 0)') FROM t", "SELECT JSON_VALUE(j, '$.a + 1') FROM t",
                     "SELECT JSON_VALUE(j, '$[last]') FROM t", "SELECT JSON_VALUE(j, '$[0, 1]') FROM t",
                     "SELECT j = j FROM t", "SELECT j FROM t ORDER BY j", "SELECT COUNT(DISTINCT j) FROM t",
-                    "SELECT MIN(j) FROM t", "SELECT MIN(j) OVER() FROM t", "SELECT Json('{}')",
+                    "SELECT MIN(j) FROM t", "SELECT MIN(j) OVER() FROM t", "SELECT JsonDocument('{}')",
                     "SELECT `JSON_VALUE`(j, '$.a') FROM t"}) {
                 settings.Mode = ECompilerMode::Auto;
                 const auto result = CompileNative(sql, catalog, settings);

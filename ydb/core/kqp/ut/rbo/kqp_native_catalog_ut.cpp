@@ -9,7 +9,7 @@ using namespace NFrontend;
 Y_UNIT_TEST_SUITE(KqpNativeCatalog) {
     Y_UNIT_TEST(StorageTypesMatchThePreviousTextImport) {
         for (const auto id : NScheme::NTypeIds::YqlIds) {
-            if (id == NScheme::NTypeIds::Yson || id == NScheme::NTypeIds::DyNumber || id == NScheme::NTypeIds::Decimal) continue;
+            if (id == NScheme::NTypeIds::DyNumber || id == NScheme::NTypeIds::Decimal) continue;
             for (const bool notNull : {false, true}) {
                 auto expected = ParseType(NScheme::TypeName(id));
                 expected.OptionalDepth = !notNull;
@@ -25,7 +25,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCatalog) {
 
     Y_UNIT_TEST(InvalidAndUnsupportedStorageTypesRetainTheSourcePosition) {
         const TSourcePosition position{31, 4, 8};
-        for (const auto type : {NScheme::TTypeInfo(NScheme::NTypeIds::Yson), NScheme::TTypeInfo(NScheme::NTypeIds::DyNumber),
+        for (const auto type : {NScheme::TTypeInfo(NScheme::NTypeIds::DyNumber),
                 NScheme::TTypeInfo(static_cast<const NPg::ITypeDesc*>(nullptr)), NScheme::TTypeInfo(0xffff)}) {
             try { ImportNativeStorageType(type, true, position); UNIT_FAIL("unsupported storage type accepted"); }
             catch (const TUnsupportedFeature& error) {

@@ -953,7 +953,8 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
             UNIT_ASSERT_VALUES_EQUAL(folded[0], value);
             UNIT_ASSERT_VALUES_EQUAL(folded[1], nullValue);
             UNIT_ASSERT_EXCEPTION(arena.Unary(O::StablePickle, input), TUnsupportedFeature);
-            UNIT_ASSERT_EXCEPTION(arena.Literal({kind}, std::string("{}")), TUnsupportedFeature);
+            if (kind == K::JsonDocument) UNIT_ASSERT_EXCEPTION(arena.Literal({kind}, std::string("{}")), TUnsupportedFeature);
+            else UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Literal({kind}, std::string("{}")))), "{}");
             const TType fields[]{{kind, true}};
             UNIT_ASSERT_EXCEPTION(arena.TupleType(fields), TUnsupportedFeature);
             UNIT_ASSERT_EXCEPTION(arena.JsonValue(input, "$.\"a\\nb\""), TUnsupportedFeature);

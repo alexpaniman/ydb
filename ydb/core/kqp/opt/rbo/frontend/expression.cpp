@@ -1,4 +1,5 @@
 #include "expression.h"
+#include "document.h"
 
 #include <contrib/libs/double-conversion/double-conversion/string-to-double.h>
 #include <util/charset/utf8.h>
@@ -25,7 +26,7 @@ using O = EOpcode;
 
 constexpr std::string_view TypeNames[]{"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
     "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval",
-    "Date32", "Datetime64", "Timestamp64", "Interval64", "Uuid", "Json", "JsonDocument", "Calendar", "Tuple", "List"};
+    "Date32", "Datetime64", "Timestamp64", "Interval64", "Uuid", "Json", "JsonDocument", "Yson", "Calendar", "Tuple", "List"};
 static_assert(std::size(TypeNames) == static_cast<unsigned>(K::List) + 1);
 
 bool EqualAsciiCase(std::string_view left, std::string_view right) {
@@ -873,7 +874,7 @@ void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePo
             const int width = PayloadWidth(value.Type.Kind);
             valid = IsDate(value.Type.Kind) ? FitsTemporal(*number, value.Type.Kind) : FitsUnsigned(*number, width);
         }
-    } else if (value.Type.IsString() || value.Type.IsJson() || value.Type.Kind == K::Uuid) {
+    } else if (value.Type.IsString() || value.Type.IsDocument() || value.Type.Kind == K::Uuid) {
         valid = std::holds_alternative<std::string>(value.Data);
         if (valid && value.Type.Kind == K::Uuid) valid = std::get<std::string>(value.Data).size() == 16;
         if (valid && value.Type.Kind == K::Utf8) valid = IsUtf8(std::get<std::string>(value.Data));
@@ -903,8 +904,8 @@ bool WideningIntegerCast(TType source, TType target) {
 // One conversion contract for scalar operands and elements of list casts.
 // A nullable result beyond the requested type denotes a potentially failing cast.
 TType ScalarCastType(TType source, TType target, bool literal, TSourcePosition position) {
-    if ((source.IsJson() || target.IsJson()) && source.Kind != K::Null && source.Required() != target.Required())
-        throw TUnsupportedFeature(EFeature::Expression, position, "JSON conversion is outside the native scalar profile");
+    if ((source.IsDocument() || target.IsDocument()) && source.Kind != K::Null && source.Required() != target.Required())
+        throw TUnsupportedFeature(EFeature::Expression, position, "JSON/YSON conversion is outside the native scalar profile");
     if (source.Kind == K::Calendar || target.Kind == K::Calendar)
         throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
     if (target.Kind == K::Null) {
@@ -1092,7 +1093,7 @@ TType ParseType(std::string_view name, TSourcePosition position) {
         ++nullable;
         name.remove_suffix(1);
     }
-    for (unsigned i = 0; i <= static_cast<unsigned>(K::JsonDocument); ++i) {
+    for (unsigned i = 0; i <= static_cast<unsigned>(K::Yson); ++i) {
         if (i != static_cast<unsigned>(K::Decimal) && EqualAsciiCase(name, TypeNames[i])) {
             return {static_cast<K>(i), nullable};
         }
@@ -1134,7 +1135,7 @@ TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition 
     bool nullable = false;
     for (const auto item : items) {
         ValidateType(item, position);
-        if (item.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON tuple states are outside the native scalar profile");
+        if (item.IsDocument()) throw TUnsupportedFeature(EFeature::Type, position, "JSON/YSON tuple states are outside the native scalar profile");
         if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
         if (item.IsCollection()) depth = std::max(depth, 1u + TupleProperties_[item.Shape - 1].Depth);
         nullable |= CanContainNull(item);
@@ -1273,7 +1274,7 @@ TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePositi
 
 TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position) {
     const auto value = (*this)[lookup].Type, values = (*this)[collection].Type;
-    if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsJson())
+    if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsDocument())
         throw TUnsupportedFeature(EFeature::Type, position, "IN requires a flat collection and a scalar lookup");
     const TType item = values.Kind == K::List ? ListItem(values) : TType{};
     const bool empty = (*this)[collection].Op == O::Collection && (*this)[collection].Arguments.empty();
@@ -1362,9 +1363,12 @@ TExprId TExpressionArena::Append(TExprNode node) {
 }
 
 TExprId TExpressionArena::Literal(TType type, TScalar value, TSourcePosition position) {
-    if (type.IsJson() && !std::holds_alternative<std::monostate>(value))
-        throw TUnsupportedFeature(EFeature::Expression, position, "native JSON values require a typed column or parameter");
     ValidateValue(*this, {type, value}, position);
+    if (type.IsDocument()) {
+        const auto* payload = &value;
+        while (const auto* optional = std::get_if<TOptionalValue>(payload)) payload = &(*optional)->Data;
+        if (const auto* bytes = std::get_if<std::string>(payload)) ValidateDocumentLiteral(type.Kind, *bytes, position);
+    }
     if (type.Kind == K::Float || type.IsCollection()) value = NormalizeValue(type, std::move(value));
     return Append({O::Literal, type, position, {}, std::move(value), {}, 0});
 }
@@ -1534,7 +1538,7 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (type.Kind != K::Calendar) Fail(position, "calendar operation requires a calendar value");
         type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : op == O::CalendarMinute ? K::Uint8 : K::Uint16, type.OptionalDepth};
     } else if (op == O::StablePickle) {
-        if (type.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON key serialization is outside the native profile");
+        if (type.IsDocument()) throw TUnsupportedFeature(EFeature::Type, position, "JSON/YSON key serialization is outside the native profile");
         if (type.IsCollection()) Fail(position, "Collection serialization is not supported");
         if (type.Kind == K::Calendar) throw TUnsupportedFeature(EFeature::Type, position, "calendar values cannot be persisted");
         type = {K::String};
@@ -1577,8 +1581,8 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
     const auto rightType = (*this)[right].Type;
     if (leftType.OptionalDepth > 1 || rightType.OptionalDepth > 1)
         throw TUnsupportedFeature(EFeature::Type, position, "Nested optional binary operations require explicit Unwrap");
-    if (leftType.IsJson() || rightType.IsJson())
-        throw TUnsupportedFeature(EFeature::Expression, position, "JSON binary operations are outside the native scalar profile");
+    if (leftType.IsDocument() || rightType.IsDocument())
+        throw TUnsupportedFeature(EFeature::Expression, position, "JSON/YSON binary operations are outside the native scalar profile");
     if (op == O::CalendarShiftMonths || op == O::CalendarShiftYears) {
         if (leftType.Kind != K::Calendar || rightType != TType{K::Int32})
             Fail(position, "calendar shift requires a calendar value and non-null Int32 amount");
@@ -2025,7 +2029,7 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         if (arguments.empty()) Fail(position, "Scalar min/max requires at least one argument");
         auto type = (*this)[arguments[0]].Type;
         for (const auto id : arguments) type = CommonType(type, (*this)[id].Type, position);
-        if (type.IsJson()) Fail(position, "Scalar min/max requires comparable values");
+        if (type.IsDocument()) Fail(position, "Scalar min/max requires comparable values");
         if (type.IsCollection() || type.Kind == K::Calendar)
             throw TUnsupportedFeature(EFeature::Type, position, "scalar min/max requires supported scalar values");
         auto result = Convert(arguments[0], type, position);
@@ -2119,11 +2123,14 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
     } catch (const TFrontendError&) {
     }
     if (castType && castType->Kind != K::Null) {
-        if (castType->IsJson()) throw TUnsupportedFeature(EFeature::Expression, position, "native JSON constructors are not supported");
         arity(1);
         const auto source = (*this)[arguments[0]];
         if (source.Op != O::Literal || !source.Type.IsString())
             throw TUnsupportedFeature(EFeature::Expression, position, "native data constructors require a string literal");
+        if (castType->IsDocument()) {
+            if (!std::holds_alternative<std::string>(source.Value)) Fail(position, "Invalid " + castType->ToString() + " literal");
+            return Literal(*castType, source.Value, position);
+        }
         auto value = ConvertValue({source.Type, source.Value}, castType->Optional());
         if (value.IsNull()) Fail(position, "Invalid " + castType->ToString() + " literal");
         return Literal(castType->Required(), std::move(value.Data), position);

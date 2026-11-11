@@ -14,37 +14,31 @@ SRCS(
     kqp_rbo_lowering_ut.cpp
     kqp_rbo_lookup_join_ut.cpp
     kqp_rbo_olap_ut.cpp
+    kqp_rbo_yql_ut.cpp
+    kqp_native_document_ut.cpp
+    kqp_native_catalog_ut.cpp
+    kqp_native_aggregate_filter_ut.cpp
+    kqp_native_compilation_time_ut.cpp
+    kqp_native_olap_ut.cpp
+    kqp_native_effects_ut.cpp
+    kqp_native_join_using_ut.cpp
+    kqp_native_olap_policy_ut.cpp
+    kqp_native_execution_ut.cpp
+    kqp_native_reference_execution_ut.cpp
+    kqp_native_reference_join_order_ut.cpp
+    kqp_native_index_ut.cpp
+    kqp_native_optimizer_pragma_ut.cpp
+    kqp_native_quoted_ut.cpp
+    kqp_native_reference_lowering_ut.cpp
+    kqp_native_frontend_ut.cpp
+    kqp_native_host_ut.cpp
 )
 
-# These native tests push the combined binary past DWARF's 32-bit
-# debug-section limit. Keep source/stack locations for these files; production
-# code and the other tests retain their usual debug information.
+# Keep source/stack locations for this large test binary without exceeding
+# DWARF32 debug-section offsets. Production libraries keep their usual debug
+# information; this setting applies only to the test translation units.
 IF (OS_LINUX AND CLANG)
-    SRC(kqp_native_catalog_ut.cpp -gline-tables-only)
-    SRC(kqp_native_aggregate_filter_ut.cpp -gline-tables-only)
-    SRC(kqp_native_compilation_time_ut.cpp -gline-tables-only)
-    SRC(kqp_native_olap_ut.cpp -gline-tables-only)
-    SRC(kqp_native_effects_ut.cpp -gline-tables-only)
-    SRC(kqp_native_join_using_ut.cpp -gline-tables-only)
-    SRC(kqp_native_olap_policy_ut.cpp -gline-tables-only)
-    SRC(kqp_native_execution_ut.cpp -gline-tables-only)
-    SRC(kqp_native_reference_execution_ut.cpp -gline-tables-only)
-    SRC(kqp_native_reference_join_order_ut.cpp -gline-tables-only)
-    SRC(kqp_native_index_ut.cpp -gline-tables-only)
-    SRC(kqp_native_optimizer_pragma_ut.cpp -gline-tables-only)
-    SRC(kqp_native_quoted_ut.cpp -gline-tables-only)
-    SRC(kqp_native_reference_lowering_ut.cpp -gline-tables-only)
-    SRC(kqp_native_frontend_ut.cpp -gline-tables-only)
-    SRC(kqp_native_host_ut.cpp -gline-tables-only)
-    SRC(kqp_rbo_yql_ut.cpp -gline-tables-only)
-ELSE()
-    SRCS(kqp_native_catalog_ut.cpp)
-    SRCS(kqp_native_aggregate_filter_ut.cpp)
-    SRCS(kqp_native_compilation_time_ut.cpp)
-    SRCS(kqp_native_reference_join_order_ut.cpp)
-    SRCS(kqp_native_olap_ut.cpp kqp_native_effects_ut.cpp kqp_native_join_using_ut.cpp)
-    SRCS(kqp_native_olap_policy_ut.cpp)
-    SRCS(kqp_native_execution_ut.cpp kqp_native_reference_execution_ut.cpp kqp_native_index_ut.cpp kqp_native_optimizer_pragma_ut.cpp kqp_native_quoted_ut.cpp kqp_native_reference_lowering_ut.cpp kqp_native_frontend_ut.cpp kqp_native_host_ut.cpp kqp_rbo_yql_ut.cpp)
+    CFLAGS(-gline-tables-only)
 ENDIF()
 
 PEERDIR(

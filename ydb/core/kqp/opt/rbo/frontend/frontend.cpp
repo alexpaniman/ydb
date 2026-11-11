@@ -896,7 +896,7 @@ private:
         if (const auto* scalar = type.Scalar()) { Program.Expressions.ValidateType(*scalar, pos); return; }
         if (const auto* list = type.ScalarList()) {
             Program.Expressions.ValidateType(list->Item, pos);
-            if (list->Item.IsCollection() || list->Item.Kind == ETypeKind::Calendar || list->Item.IsJson())
+            if (list->Item.IsCollection() || list->Item.Kind == ETypeKind::Calendar || list->Item.IsDocument())
                 throw TUnsupportedFeature(EFeature::Type, pos, "list parameter items require ordinary scalar types");
             return;
         }
@@ -1967,8 +1967,8 @@ private:
             const auto payloadType = arena[input].Type;
             if (arena[key].Type.Kind == ETypeKind::Null) key = arena.Convert(key, {ETypeKind::Int8, true}, syntax.Position);
             const auto keyType = arena[key].Type;
-            if (keyType.IsCollection() || keyType.IsJson() || keyType.Kind == ETypeKind::Calendar || keyType.OptionalDepth > 1 ||
-                payloadType.IsJson() || payloadType.Kind == ETypeKind::Calendar || payloadType.OptionalDepth > 1)
+            if (keyType.IsCollection() || keyType.IsDocument() || keyType.Kind == ETypeKind::Calendar || keyType.OptionalDepth > 1 ||
+                payloadType.IsDocument() || payloadType.Kind == ETypeKind::Calendar || payloadType.OptionalDepth > 1)
                 throw TUnsupportedFeature(EFeature::Type, syntax.Position, "MIN_BY/MAX_BY requires a comparable value and scalar key");
             auto requiredKey = key;
             if (keyType.OptionalDepth) requiredKey = arena.Call("Unwrap", std::span(&key, 1), syntax.Position);
@@ -2237,6 +2237,9 @@ private:
                 result = arena.Literal({unicode ? ETypeKind::Utf8 : ETypeKind::String}, syntax.Text, syntax.Position);
                 break;
             }
+            case ESyntaxKind::JsonString: case ESyntaxKind::YsonString:
+                result = arena.Literal({syntax.Kind == ESyntaxKind::JsonString ? ETypeKind::Json : ETypeKind::Yson}, syntax.Text, syntax.Position);
+                break;
             case ESyntaxKind::Column: {
                 const auto column = ResolveColumn(context, syntax.Text, syntax.Position);
                 if (!column) {
@@ -2685,21 +2688,21 @@ void CheckProgram(const TBoundProgram& program) {
             throw TUnsupportedFeature(EFeature::Function, node.Position, "native ASCII case functions require String input");
     }
     for (const auto& relation : program.Relations) {
-        const auto jsonKey = [&](TColumnId id) {
-            if (program.Columns.at(id).Type.IsJson())
-                throw TUnsupportedFeature(EFeature::Type, relation.Position, "JSON grouping and ordering are outside the native scalar profile");
+        const auto documentKey = [&](TColumnId id) {
+            if (program.Columns.at(id).Type.IsDocument())
+                throw TUnsupportedFeature(EFeature::Type, relation.Position, "JSON/YSON grouping and ordering are outside the native scalar profile");
         };
-        for (auto key : relation.GroupKeys) jsonKey(key);
-        for (const auto& key : relation.SortKeys) jsonKey(key.Column);
+        for (auto key : relation.GroupKeys) documentKey(key);
+        for (const auto& key : relation.SortKeys) documentKey(key.Column);
         for (const auto& capture : relation.Captures)
-            if (program.Columns.at(capture.Local).Type.IsJson())
-                throw TUnsupportedFeature(EFeature::Subquery, relation.Position, "correlated JSON captures are outside the native scalar profile");
+            if (program.Columns.at(capture.Local).Type.IsDocument())
+                throw TUnsupportedFeature(EFeature::Subquery, relation.Position, "correlated JSON/YSON captures are outside the native scalar profile");
         for (const auto& aggregate : relation.Aggregates)
-            if (program.Columns.at(aggregate.Input).Type.IsJson() && (aggregate.Function != "count" || aggregate.Distinct))
-                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON aggregation supports only COUNT");
+            if (program.Columns.at(aggregate.Input).Type.IsDocument() && (aggregate.Function != "count" || aggregate.Distinct))
+                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON/YSON aggregation supports only COUNT");
         for (const auto& function : relation.WindowFunctions)
-            if (function.Input && program.Columns.at(*function.Input).Type.IsJson() && function.Function != "count")
-                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON windows support only COUNT");
+            if (function.Input && program.Columns.at(*function.Input).Type.IsDocument() && function.Function != "count")
+                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON/YSON windows support only COUNT");
         if (relation.Kind == ERelation::Join && (relation.JoinKind == EJoinKind::Full || relation.JoinKind == EJoinKind::Exclusion) && relation.Predicate) {
             // The existing full-join backend cannot execute residual filters.
             // Only admit predicates that become column equality keys; leave
@@ -2976,14 +2979,14 @@ std::string_view SupportManifest() {
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
 "index_views":["ready synchronous row indexes, including unique indexes; covering reads and nullable-primary-key lookups; shared named view producers materialize once; no async/specialized indexes or VIEW PRIMARY KEY"],
 "relations":["read","project","filter","on-join","using-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
-"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
+"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Yson","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults followed by native stored generated expressions at emission; INSERT OR REVERT checks supplied values for primary-key and unique-index conflicts before optimization; virtual generated columns, generated writes requiring stored dependency lookup, INSERT OR REVERT with defaults or generated columns, and batch writes are unsupported"],
 "volatile_operations":["RandomUuid(dependencies)","RandomNumber(dependencies)","YQL::RandomUuid() and YQL::RandomNumber() syntax for query-scoped internal inputs"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs","Math::Abs with Double input conversion and nullable AutoMap semantics"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
-"json_operations":["JSON_VALUE on typed Json/JsonDocument columns or parameters, default Utf8? result and NULL ON EMPTY/ERROR; selector paths with optional lax/strict mode, members, wildcards and nonnegative Uint32 indexes; no escaped member names, path expressions, PASSING, RETURNING, explicit handlers or JSON constructors; JSON grouping/order/comparison, DISTINCT, tuple states, non-COUNT aggregates/windows and correlated JSON captures are unsupported"],
+"json_operations":["Validated j/y string literals and Json/Yson literal constructors; JSON_VALUE on typed Json literals, Json/JsonDocument columns or parameters, default Utf8? result and NULL ON EMPTY/ERROR; selector paths with optional lax/strict mode, members, wildcards and nonnegative Uint32 indexes; no escaped member names, path expressions, PASSING, RETURNING, explicit handlers or JsonDocument constructors; JSON/YSON grouping/order/comparison, DISTINCT, tuple states, non-COUNT aggregates/windows and correlated JSON/YSON captures are unsupported"],
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "aggregate_filters":["FILTER (WHERE predicate) for supported ordinary and window aggregates; native conditional inputs preserve excluded-row laziness, distinct identities and NULL predicates"],
 "windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
@@ -2995,7 +2998,7 @@ std::string_view SupportManifest() {
 "string":["CostBasedOptimization=on/off/auto","HashJoinMode","OptimizerHints"],
 "false_only":["OptFallbackToLegacyOptimizer"],
 "rules":["static query settings applied in source order; every occurrence is validated","case-insensitive names; up to four single internal or trailing underscores","empty Boolean values mean true","HashJoinMode and OptimizerHints are validated at the RBO handoff","unknown settings delegate; malformed known values are errors"]},
-"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, named USING keys, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no system columns or string suffixes other than s/u"],
+"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, named USING keys, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no system columns or string suffixes other than s/u/j/y"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})manifest";
 }
