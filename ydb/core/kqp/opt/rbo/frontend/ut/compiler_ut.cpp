@@ -32,6 +32,81 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(AggregateFiltersPreserveCallAndWindowInputIdentity) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const bool window : {false, true}) {
+                const std::string over = window ? " OVER (PARTITION BY value ORDER BY id)" : "";
+                const auto sql = "SELECT SUM(value) FILTER(WHERE id > 1ul)" + over + " AS a, "
+                    "SUM(value) FILTER(WHERE id > 2ul)" + over + " AS b, SUM(value)" + over + " AS c, "
+                    "SUM(value) FILTER(WHERE id > 1ul)" + over + " AS d FROM t";
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                size_t calls = 0;
+                std::vector<TColumnId> inputs;
+                for (const auto& relation : program.Relations) {
+                    calls += relation.Aggregates.size() + relation.WindowFunctions.size();
+                    for (const auto& call : relation.Aggregates) inputs.push_back(call.Input);
+                    for (const auto& call : relation.WindowFunctions) inputs.push_back(*call.Input);
+                }
+                UNIT_ASSERT_VALUES_EQUAL(calls, 3);
+                UNIT_ASSERT_VALUES_UNEQUAL(inputs[0], inputs[1]);
+                UNIT_ASSERT_VALUES_UNEQUAL(inputs[0], inputs[2]);
+                UNIT_ASSERT_VALUES_UNEQUAL(inputs[1], inputs[2]);
+            }
+            const auto sql = "$cutoff = 1ul; SELECT COUNT(*) FILTER(WHERE id > $cutoff) FROM t";
+            const auto syntax = ParseNative(sql, settings);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(syntax), SyntaxFingerprint(ParseGrammar(sql)));
+            UNIT_ASSERT(CompileNative(sql, Catalog, settings).Program);
+            const auto discovery = ParseNative("SELECT SUM(value) FILTER(WHERE EXISTS(SELECT id FROM u)) FROM t", settings);
+            const auto tables = CollectTables(discovery);
+            UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
+            UNIT_ASSERT(std::any_of(tables.begin(), tables.end(), [](const auto& table) { return table.Name == "u"; }));
+        }
+    }
+
+    Y_UNIT_TEST(AggregateFiltersGuardArgumentEvaluation) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(
+                "SELECT SUM(Ensure(value, value > 0, 'excluded value')) FILTER(WHERE id > 1ul) FROM t", Catalog, settings);
+            auto program = compiled.Program->Get();
+            TColumnId input = 0;
+            for (const auto& relation : program.Relations) if (!relation.Aggregates.empty()) input = relation.Aggregates[0].Input;
+            std::optional<TExprId> expression;
+            for (const auto& relation : program.Relations) for (const auto& definition : relation.Definitions)
+                if (definition.Column == input) expression = definition.Expression;
+            UNIT_ASSERT(expression);
+            const auto folded = program.Expressions.FoldConstants(std::span(&*expression, 1)).front();
+            for (const auto root : {*expression, folded}) {
+                for (const std::uint64_t id : {1, 2}) {
+                    TEvaluationContext context;
+                    context.Column = [&](TColumnId column) -> TValue {
+                        const auto& field = program.Columns[column];
+                        return field.Name == "id" ? TValue{field.Type, id} : TValue{field.Type, std::int64_t{-7}};
+                    };
+                    if (id == 1) UNIT_ASSERT(Evaluate(program.Expressions, root, context).IsNull());
+                    else UNIT_ASSERT_EXCEPTION(Evaluate(program.Expressions, root, context), TFrontendError);
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(AggregateFiltersRejectInvalidScopeAndTypes) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {"SELECT Abs(value) FILTER(WHERE TRUE) FROM t",
+                "SELECT ROW_NUMBER() FILTER(WHERE TRUE) OVER() FROM t",
+                "SELECT SUM(value) FILTER(WHERE id) FROM t",
+                "SELECT SUM(value) FILTER(WHERE SUM(value) > 0) FROM t",
+                "SELECT SUM(value) FILTER(WHERE missing > 0) FROM t"}) {
+                try { CompileNative(sql, Catalog, settings); UNIT_FAIL("invalid FILTER accepted: " << sql); }
+                catch (const TUnsupportedFeature& e) { UNIT_FAIL("invalid FILTER requested fallback: " << e.what()); }
+                catch (const TFrontendError&) {}
+            }
+        }
+    }
+
     Y_UNIT_TEST(SetMembershipUsesExistingJoinAndDistinctBoundaries) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify})
         for (const auto* operation : {"INTERSECT", "EXCEPT"}) for (const bool nullable : {false, true}) {
@@ -1079,7 +1154,6 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         for (const auto* sql : {
             "SELECT SUM(DISTINCT value) OVER() FROM t",
             "SELECT Lag(value) OVER(ORDER BY id) FROM t",
-            "SELECT SUM(value) FILTER(WHERE value > 0) OVER() FROM t",
             "SELECT SUM(value) OVER(ORDER BY id GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t",
             "SELECT SUM(value) OVER(ORDER BY id ROWS UNBOUNDED PRECEDING EXCLUDE CURRENT ROW) FROM t",
             "SELECT SUM(value) OVER(RANGE UNBOUNDED PRECEDING) FROM t",

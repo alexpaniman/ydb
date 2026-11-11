@@ -142,6 +142,8 @@ void WindowChildren(const TSyntaxWindow& window, std::vector<TSyntaxId>& out) {
     if (window.EndOffset != NoSyntax) out.push_back(window.EndOffset);
 }
 
+bool IsAggregate(std::string_view name);
+
 // Resolve each reference to its lexical declaration once. Closures keep
 // these IDs when later statements shadow a name; expanding a lambda or query
 // never copies an environment or re-resolves its free names.
@@ -279,8 +281,13 @@ private:
             Seen[id] = true;
             ExpressionOptions[id] = Options;
             const auto& node = Syntax.Expressions[id];
-            if (node.Filter != NoSyntax || node.NullTreatment != ENullTreatment::Default)
-                throw TUnsupportedFeature(EFeature::Window, node.Position, "aggregate FILTER and NULL treatment require native execution support");
+            if (node.NullTreatment != ENullTreatment::Default)
+                throw TUnsupportedFeature(EFeature::Window, node.Position, "NULL treatment requires native execution support");
+            if (node.Filter != NoSyntax) {
+                if (node.Kind != ESyntaxKind::Call || !IsAggregate(Lower(node.Text)))
+                    throw TFrontendError(node.Position, "FILTER requires an aggregate function");
+                pending.push_back(node.Filter);
+            }
             if (node.Lambda) {
                 if (++Depth > Settings.MaxExpansionDepth)
                     throw TResourceLimitError(node.Position, "binding scope depth limit exceeded");
@@ -603,13 +610,14 @@ struct TSyntaxKey {
     const TSelect* Query;
     std::uint32_t Window = NoSyntax;
     std::uint8_t Options = 0;
+    std::uint32_t Filter = NoSyntax;
     bool operator==(const TSyntaxKey&) const = default;
 };
 
 struct TSyntaxHash {
     std::size_t operator()(const TSyntaxKey& key) const {
         std::size_t value = std::hash<std::string>{}(key.Text) ^ static_cast<unsigned>(key.Kind) ^ key.Distinct ^ key.Binding;
-        value ^= std::hash<const TSelect*>{}(key.Query) ^ key.Window ^ key.Options;
+        value ^= std::hash<const TSelect*>{}(key.Query) ^ key.Window ^ key.Options ^ key.Filter;
         for (auto arg : key.Arguments) value ^= arg + 0x9e3779b9 + (value << 6) + (value >> 2);
         return value;
     }
@@ -643,6 +651,7 @@ public:
             key.Text.clear(); key.Binding = column->Id;
         }
         for (const auto argument : node.Arguments) key.Arguments.push_back(Get(argument));
+        if (node.Filter != NoSyntax) key.Filter = Get(node.Filter);
         const auto value = Interned.emplace(std::move(key), Interned.size()).first->second;
         Cache.emplace(id, value);
         return value;
@@ -683,7 +692,8 @@ struct TWindowContext {
     TExprContext* Source = nullptr;
     std::vector<TDefinition> Definitions;
     std::vector<TRelation> Groups;
-    std::unordered_map<std::uint32_t, TColumnId> Inputs;
+    // Argument and FILTER identities jointly determine the materialized input.
+    std::unordered_map<std::uint64_t, TColumnId> Inputs;
     std::unordered_map<TColumnId, TType> InputTypes;
     std::unordered_map<std::uint32_t, TExprId> Calls;
     std::unordered_map<std::uint32_t, std::size_t> Specifications;
@@ -757,12 +767,18 @@ public:
                 aggregate = aggregate || ContainsAggregate[child];
                 window = window || ContainsWindow[child];
             }
+            if (expr.Filter != NoSyntax) {
+                if (expr.Filter >= i) throw TFrontendError(expr.Position, "filter syntax is not topologically ordered");
+                aggregate = aggregate || ContainsAggregate[expr.Filter];
+                window = window || ContainsWindow[expr.Filter];
+            }
             if (hasWindows) {
                 const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast || expr.Kind == ESyntaxKind::BitCast;
                 TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
                 key.Options = Bindings.Flags(i);
                 if (expr.Lambda) key.Binding = i;
                 for (auto child : expr.Arguments) key.Arguments.push_back(Canonical[child]);
+                if (expr.Filter != NoSyntax) key.Filter = Canonical[expr.Filter];
                 if (expr.Window) {
                     const auto& w = Bindings.Window(*expr.Window);
                     auto canonical = [&](TSyntaxId child) {
@@ -1921,6 +1937,16 @@ private:
         return mayBeEmpty ? type.Optional() : type;
     }
 
+    TExprId FilterAggregateInput(TExprId input, TSyntaxId filter, TExprContext& context) {
+        if (filter == NoSyntax) return input;
+        const auto pos = Syntax.Expressions[filter].Position;
+        const auto predicate = Expr(filter, context);
+        auto& arena = Program.Expressions;
+        // Aggregates skip absent inputs. Keep the value inside IF so excluded
+        // rows cannot evaluate a throwing or non-repeatable argument.
+        return arena.If(predicate, input, arena.Literal(arena[input].Type.Optional(), {}, pos), pos);
+    }
+
     TExprId Aggregate(const TSyntaxExpr& syntax, std::uint32_t canonical, TAggregationContext& context) {
         if (auto it = context.Calls.find(canonical); it != context.Calls.end()) return it->second;
         auto name = Lower(syntax.Text);
@@ -1955,6 +1981,7 @@ private:
             // preserves that contract without introducing a new optimizer rule.
             name = name.starts_with("min") ? "min" : "max";
         }
+        input = FilterAggregateInput(input, syntax.Filter, *context.Source);
         const auto type = AggregateType(name, Program.Expressions[input].Type, context.MayBeEmpty, syntax.Position);
         auto inputColumn = Materialize(input, context.Definitions, syntax.Position);
         const auto innerType = AggregateType(name, Program.Expressions[input].Type, context.Keys.empty(), syntax.Position);
@@ -2010,20 +2037,22 @@ private:
             throw TUnsupportedFeature(EFeature::Window, syntax.Position, "unsupported native window function: " + syntax.Text);
         if (syntax.Distinct) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "DISTINCT window aggregate");
         if (syntax.Arguments.size() != (rank ? 0 : 1)) throw TFrontendError(syntax.Position, "invalid window function argument count");
-        auto materialize = [&](TSyntaxId arg) {
-            if (const auto found = context.Inputs.find(Canonical[arg]); found != context.Inputs.end()) return found->second;
-            const auto expression = Syntax.Expressions[arg].Kind == ESyntaxKind::Star ?
+        auto materialize = [&](TSyntaxId arg, TSyntaxId filter = NoSyntax) {
+            const auto key = (std::uint64_t{Canonical[arg]} << 32) | (filter == NoSyntax ? NoSyntax : Canonical[filter]);
+            if (const auto found = context.Inputs.find(key); found != context.Inputs.end()) return found->second;
+            auto expression = Syntax.Expressions[arg].Kind == ESyntaxKind::Star ?
                 Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{1}, syntax.Position) : Expr(arg, *context.Source);
+            expression = FilterAggregateInput(expression, filter, *context.Source);
             const auto column = Materialize(expression, context.Definitions, syntax.Position);
             context.InputTypes[column] = Program.Expressions[expression].Type;
-            context.Inputs.emplace(Canonical[arg], column);
+            context.Inputs.emplace(key, column);
             return column;
         };
         std::optional<TColumnId> input;
         if (!rank) {
             if (Syntax.Expressions[syntax.Arguments[0]].Kind == ESyntaxKind::Star && name != "count")
                 throw TFrontendError(syntax.Position, "only COUNT(*) accepts star");
-            input = materialize(syntax.Arguments[0]);
+            input = materialize(syntax.Arguments[0], syntax.Filter);
         }
         auto [group, fresh] = context.Specifications.emplace(CanonicalWindows[id], context.Groups.size());
         if (fresh) {
@@ -2736,7 +2765,7 @@ private:
     void Expression(TSyntaxId root) {
         if (root == NoSyntax) return;
         const auto& expression = Syntax.Expressions[root];
-        if (expression.Arguments.empty() && !expression.Query && !expression.Window &&
+        if (expression.Arguments.empty() && !expression.Query && !expression.Window && expression.Filter == NoSyntax &&
             Bindings.Definition(Bindings[root]) == NoSyntax) return;
         std::vector<TSyntaxId> pending{root};
         std::unordered_set<TSyntaxId> seen;
@@ -2746,6 +2775,7 @@ private:
             const auto& node = Syntax.Expressions[id];
             if (++Nodes > Settings.MaxNodes) throw TResourceLimitError(node.Position, "table discovery expansion limit exceeded");
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+            if (node.Filter != NoSyntax) pending.push_back(node.Filter);
             if (node.Window) WindowChildren(Bindings.Window(*node.Window), pending);
             if (node.Query) Select(*node.Query);
             if (const auto query = Bindings.QueryReference(id)) {
@@ -2950,11 +2980,12 @@ std::string_view SupportManifest() {
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults followed by native stored generated expressions at emission; INSERT OR REVERT checks supplied values for primary-key and unique-index conflicts before optimization; virtual generated columns, generated writes requiring stored dependency lookup, INSERT OR REVERT with defaults or generated columns, and batch writes are unsupported"],
 "volatile_operations":["RandomUuid(dependencies)","RandomNumber(dependencies)","YQL::RandomUuid() and YQL::RandomNumber() syntax for query-scoped internal inputs"],
-"math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
+"math_operations":["Math::IsNaN on typed integer/Float/Double inputs","Math::Abs with Double input conversion and nullable AutoMap semantics"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
 "json_operations":["JSON_VALUE on typed Json/JsonDocument columns or parameters, default Utf8? result and NULL ON EMPTY/ERROR; selector paths with optional lax/strict mode, members, wildcards and nonnegative Uint32 indexes; no escaped member names, path expressions, PASSING, RETURNING, explicit handlers or JSON constructors; JSON grouping/order/comparison, DISTINCT, tuple states, non-COUNT aggregates/windows and correlated JSON captures are unsupported"],
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
+"aggregate_filters":["FILTER (WHERE predicate) for supported ordinary and window aggregates; native conditional inputs preserve excluded-row laziness, distinct identities and NULL predicates"],
 "windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["warning(disable, issue-code)","OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","UnicodeLiterals","DisableUnicodeLiterals","ClassicDivision","CheckedOps","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],

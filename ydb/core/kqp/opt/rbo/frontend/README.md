@@ -337,6 +337,14 @@ the ordinary native string predicate operations.
 Fixed tuple comparisons expand into native scalar comparisons with SQL NULL
 semantics and lexicographic ordering.
 
+Aggregate `FILTER (WHERE predicate)` binds in the aggregate's input scope and
+becomes a native conditional nullable input before materialization. The same
+operation serves ordinary and window aggregates; the optimizer still receives
+the existing aggregate operators. False or NULL predicates skip the argument,
+including throwing expressions. Filter identity participates in aggregate and
+window input sharing. `Math::Abs` converts its argument to Double and preserves
+NULL, matching the runtime function's scalar signature.
+
 Set operands align by name and infer common types across the chain. Missing
 fields become NULL. Set ALL operations preserve duplicate counts. Output order
 follows the existing common-prefix contract; comparisons with the legacy
@@ -355,8 +363,8 @@ Important exclusions remain explicit:
   and FULL JOIN residual predicates other than column equality keys.
 - Subqueries in ON, GROUP BY, direct ORDER BY, LIMIT/OFFSET, scalar bindings or
   lambda bodies; ungrouped outer references after aggregation.
-- Correlated windows and correlated INTERSECT ALL/EXCEPT ALL; inherited,
-  DISTINCT/filtered windows, NULL treatment and unsupported frame forms.
+- Correlated windows and correlated INTERSECT ALL/EXCEPT ALL; inherited and
+  DISTINCT windows, NULL treatment and unsupported frame forms.
 - Arbitrary UDFs, volatile functions other than the UUID forms above, callable
   result columns and general containers.
   Dynamic collection dictionary keys have a narrower checked scalar profile.

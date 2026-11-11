@@ -1042,10 +1042,15 @@ private:
         if (quantified && args.empty()) Fail("set quantifier requires an argument");
         for (auto arg : args) if (Result.Expressions[arg].Kind == ESyntaxKind::Star &&
             (quantified || args.size() != 1 || !Result.Expressions[arg].Text.empty())) Fail("invalid star argument");
-        // Parse window children before their parent: syntax IDs are topological.
+        TSyntaxId filter = NoSyntax;
+        if (Take("FILTER")) {
+            Expect("("); Expect("WHERE"); filter = Expression(); Expect(")");
+        }
+        // Parse modifier children before their parent: syntax IDs are topological.
         auto window = Take("OVER") ? Window() : nullptr;
         auto id = Add(ESyntaxKind::Call, pos, variable ? "$" + name : name, std::move(args));
         Result.Expressions[id].Distinct = distinct;
+        Result.Expressions[id].Filter = filter;
         Result.Expressions[id].Window = std::move(window);
         return id;
     }

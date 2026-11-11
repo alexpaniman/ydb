@@ -204,8 +204,12 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
                 const auto syntax = Ast(sql, grammar);
                 UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TFrontendError, sql);
             }
-            for (const auto* sql : {"SELECT SUM(x) FILTER (WHERE x > 0) FROM t",
-                "SELECT FIRST_VALUE(x) IGNORE NULLS OVER () FROM t",
+            const auto filtered = Ast("SELECT SUM(x) FILTER (WHERE x > 0) FROM t", grammar);
+            UNIT_ASSERT_VALUES_EQUAL(CollectTables(filtered).size(), 1);
+            UNIT_ASSERT(BindNative(filtered, [](std::string_view, TSourcePosition) {
+                return TCatalogTable{"t", {{"x", {ETypeKind::Int32}}}};
+            }).Get().Results[0].Columns[0].Type == (TType{ETypeKind::Int64, true}));
+            for (const auto* sql : {"SELECT FIRST_VALUE(x) IGNORE NULLS OVER () FROM t",
                 "SELECT SUM(x) OVER (PARTITION COMPACT BY x) FROM t",
                 "SELECT SUM(x) OVER (PARTITION BY x AS k) FROM t",
                 "SELECT SUM(x) OVER (ROWS CURRENT ROW EXCLUDE TIES) FROM t",

@@ -41,6 +41,24 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(FunctionsAndWindowsResolveTheirArguments) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT SUM(id) FILTER(WHERE id > 0) OVER w, Math::Abs(id) FROM t WINDOW w AS (PARTITION BY value ORDER BY id);");
+            const auto windows = f.Find(ERelation::Window);
+            UNIT_ASSERT_VALUES_EQUAL(windows.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(windows[0]->GroupKeys.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(windows[0]->SortKeys.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(f.Program.Columns[windows[0]->GroupKeys[0]].Name, "value");
+            UNIT_ASSERT_VALUES_EQUAL(f.Program.Columns[windows[0]->SortKeys[0].Column].Name, "id");
+            UNIT_ASSERT(f.Program.Results[0].Columns[0].Type == (TType{ETypeKind::Int64, true}));
+            UNIT_ASSERT(f.Program.Results[0].Columns[1].Type == (TType{ETypeKind::Double}));
+            for (const auto* sql : {"SELECT SUM(absent) OVER () FROM t;", "SELECT SUM(id) OVER absent FROM t;",
+                "SELECT SUM(id) OVER (ORDER BY absent) FROM t;", "SELECT SUM(id) FILTER(WHERE absent > 0) OVER() FROM t;"})
+                f.Error(sql);
+        }
+    }
+
     Y_UNIT_TEST(PragmaValueKindsAreValidatedByTheBindingBoundary) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

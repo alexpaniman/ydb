@@ -1918,6 +1918,12 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         }
         return Append({O::Unwrap, type.Unwrapped(), position, {arguments.begin(), arguments.end()}, {}, {}, 0});
     }
+    if (lowered == "math::abs") {
+        arity(1);
+        const auto type = (*this)[arguments[0]].Type;
+        // Math::Abs has the runtime signature Double -> Double with AutoMap.
+        return Unary(O::Abs, Convert(arguments[0], {K::Double, type.OptionalDepth || type.Kind == K::Null}, position), position);
+    }
     if (lowered == "url::gethost" || lowered == "url::cutwww") {
         arity(1);
         return Unary(lowered == "url::gethost" ? O::UrlHost : O::UrlCutWWW, arguments[0], position);

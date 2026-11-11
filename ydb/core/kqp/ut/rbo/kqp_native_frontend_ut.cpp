@@ -66,6 +66,28 @@ using NTests::CheckScalar;
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(AggregateFiltersUseOrdinaryNativeOperators) {
+        using namespace NFrontend;
+        for (const auto* sql : {
+            "SELECT SUM(v) FILTER(WHERE id > 1), COUNT(*) FILTER(WHERE id > 2) FROM t",
+            "SELECT SUM(v) FILTER(WHERE id > 1) OVER(), SUM(v) FILTER(WHERE id > 2) OVER(), SUM(v) OVER() FROM t"}) {
+            NTests::TIdTestContext f;
+            const auto nodes = f.ExprCtx.NodeAllocationCounter;
+            const auto types = f.ExprCtx.TypeNodes.size();
+            auto query = CompileNativeToRbo(sql, [](std::string_view, TSourcePosition) {
+                return TNativeTable{TCatalogTable{"t", {{"id", {ETypeKind::Int32}}, {"v", {ETypeKind::Int32, true}}}},
+                    TRboTable{"/Root/t", "1:2", "", "3"}};
+            }, f.ExprCtx);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+            auto& root = *query.Roots.front();
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+            size_t conditionals = 0;
+            for (const auto& node : root.PlanProps.NativeExpressions->Nodes()) conditionals += node.Op == EOpcode::If;
+            UNIT_ASSERT_VALUES_EQUAL(conditionals, 2);
+        }
+    }
+
     Y_UNIT_TEST(CatalogSnapshotSurvivesTheResolverAndIsSharedByAliasedReads) {
         using namespace NFrontend;
         NTests::TIdTestContext f;
