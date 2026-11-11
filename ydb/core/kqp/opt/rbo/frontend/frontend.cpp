@@ -439,12 +439,20 @@ struct TStringHash {
 
 class TScope {
 public:
+    TScope() = default;
+    // A read scope can share the immutable snapshot's lexical column order.
+    // The snapshot outlives all binding scopes; column names and ordinals stay
+    // fixed until Add/Merge builds the ordinary mutable name index.
+    TScope(std::vector<TScopeColumn> columns, std::span<const std::size_t> catalogOrder)
+        : Columns(std::move(columns)), CatalogOrder(catalogOrder) {}
+
     void Reserve(std::size_t columns) {
         Columns.reserve(columns);
-        Names.reserve(columns * (MixedQualifiers ? 2 : 1));
+        if (CatalogOrder.empty()) Names.reserve(columns * (MixedQualifiers ? 2 : 1));
     }
 
     void Add(TScopeColumn column) {
+        MaterializeIndex();
         const auto index = Columns.size();
         // A single-source scope resolves its qualifier by prefix. Build the
         // qualified index only when independently qualified sources meet.
@@ -466,6 +474,7 @@ public:
     // A USING key has one unqualified binding, while each input keeps its
     // qualified binding and qualified-star projection (including NULL padding).
     void Merge(TScopeColumn column) {
+        MaterializeIndex();
         for (auto& existing : Columns) if (existing.Name == column.Name) existing.QualifiedOnly = true;
         Names.erase(column.Name);
         Add(std::move(column));
@@ -507,22 +516,39 @@ private:
         if (!inserted) it->second = Ambiguous;
     }
 
-    std::size_t FindIndex(std::string_view name) const {
+    void MaterializeIndex() {
+        if (CatalogOrder.empty()) return;
+        Names.reserve(Columns.capacity());
+        for (std::size_t i = 0; i < Columns.size(); ++i) AddName(Columns[i].Name, i);
+        CatalogOrder = {};
+    }
+
+    std::size_t FindName(std::string_view name) const {
+        if (!CatalogOrder.empty()) {
+            const auto found = std::lower_bound(CatalogOrder.begin(), CatalogOrder.end(), name,
+                [&](std::size_t index, std::string_view key) { return Columns[index].Name < key; });
+            return found != CatalogOrder.end() && Columns[*found].Name == name ? *found : Missing;
+        }
         const auto found = Names.find(name);
-        auto index = found == Names.end() ? Missing : found->second;
+        return found == Names.end() ? Missing : found->second;
+    }
+
+    std::size_t FindIndex(std::string_view name) const {
+        auto index = FindName(name);
         if (!MixedQualifiers && !Columns.empty()) {
             const auto& qualifier = Columns.front().Qualifier;
             if (!qualifier.empty() && name.size() > qualifier.size() && name.starts_with(qualifier) && name[qualifier.size()] == '.') {
-                const auto qualified = Names.find(name.substr(qualifier.size() + 1));
+                const auto qualified = FindName(name.substr(qualifier.size() + 1));
                 // A literal dotted column name may collide with a qualified
                 // reference. Keep the same ambiguity as the general index.
-                if (qualified != Names.end()) index = index == Missing ? qualified->second : Ambiguous;
+                if (qualified != Missing) index = index == Missing ? qualified : Ambiguous;
             }
         }
         return index;
     }
 
     bool MixedQualifiers = false;
+    std::span<const std::size_t> CatalogOrder;
     std::unordered_map<std::string, std::size_t, TStringHash, std::equal_to<>> Names;
     std::unordered_set<std::string, TStringHash, std::equal_to<>> Qualifiers;
 };
@@ -1119,8 +1145,8 @@ private:
         read.Index = source.Index;
         std::string alias = source.Alias;
         if (alias.empty()) alias = source.Name.substr(source.Name.find_last_of("/.") + 1);
-        TScope scope;
-        scope.Reserve(table.Columns.size());
+        std::vector<TScopeColumn> columns;
+        columns.reserve(table.Columns.size());
         read.Columns.resize(table.Columns.size());
         // Allocate source identities in the existing importer's lexical order.
         // CBO's ordered join keys consume these identities. Visible bindings
@@ -1129,8 +1155,8 @@ private:
             const auto& column = table.Columns[index];
             read.Columns[index] = Column(column.Name, alias, column.Type, source.Position);
         }
-        for (auto id : read.Columns) scope.Add(ScopeColumn(id));
-        return {Relation(std::move(read)), std::move(scope)};
+        for (auto id : read.Columns) columns.push_back(ScopeColumn(id));
+        return {Relation(std::move(read)), TScope(std::move(columns), snapshot.ColumnOrder)};
     }
 
     const TGeneratedValues& GeneratedColumns(const TCatalogTable& table, TSourcePosition pos) {
