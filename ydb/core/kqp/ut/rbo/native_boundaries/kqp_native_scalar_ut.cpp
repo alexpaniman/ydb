@@ -5,6 +5,28 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(ListIndexesUseCheckedScalarConversion) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        TExpressionArena arena;
+        const TExprId items[]{arena.Literal({K::Int32}, std::int64_t{10}), arena.Literal({K::Int32}, std::int64_t{20})};
+        const auto list = arena.Collection(items, true);
+        const auto index = arena.Parameter("index", {K::Double, true});
+        const auto root = arena.ListElement(list, index);
+        for (const std::optional<double> value : {std::optional<double>{}, std::optional<double>{-1}, {-0.5}, {-0.0},
+                {0.5}, {1.0}, {1.9}, {2.0}, {1e30}, {std::numeric_limits<double>::infinity()},
+                {-std::numeric_limits<double>::infinity()}, {std::numeric_limits<double>::quiet_NaN()}}) {
+            TEvaluationContext evaluation;
+            evaluation.Parameter = [&](auto) { return TValue{{K::Double, true}, value ? TScalar{*value} : TScalar{}}; };
+            CheckScalar(arena, root, "list index checked conversion", evaluation,
+                [&](NYql::NCommon::TMkqlBuildContext& build, NMiniKQL::TProgramBuilder& pb) {
+                    auto item = value ? pb.NewOptional(pb.NewDataLiteral<double>(*value))
+                        : pb.NewEmptyOptional(pb.NewOptionalType(pb.NewDataType(NUdf::TDataType<double>::Id)));
+                    build.Parameters = pb.NewStruct({{"$index", item}});
+                });
+        }
+    }
+
     Y_UNIT_TEST(NullTuplePayloadExecutesWithoutOptionalNullLifting) {
         using namespace NFrontend;
         using K = ETypeKind;

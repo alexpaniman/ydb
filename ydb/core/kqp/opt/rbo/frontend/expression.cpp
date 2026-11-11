@@ -1199,7 +1199,7 @@ TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePositi
     if (source.Kind == K::Null) return list;
     if (source.Kind != K::List || source.OptionalDepth > 1)
         throw TUnsupportedFeature(EFeature::Type, position, "subscript requires a flat typed list");
-    if (!key.IsIntegral() || key.OptionalDepth > 1) Fail(position, "list index requires an integer");
+    if (key.OptionalDepth > 1) Fail(position, "list index requires at most one optional layer");
     auto result = ListItem(source);
     if (result.Kind == K::Null)
         throw TUnsupportedFeature(EFeature::Type, position, "indexing an all-NULL list requires an explicit element type");
@@ -1207,6 +1207,8 @@ TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePositi
     ++result.OptionalDepth;
     // Missing index and an existing NULL element are distinct: list access
     // adds one optional layer, including for an already optional element.
+    // SQL subscripts use the same checked Uint64 conversion as explicit casts.
+    // Keep conversion semantics centralized, including fractional/invalid keys.
     index = Cast(index, {K::Uint64}, position);
     return Append({O::ListElement, result, position, {list, index}, {}, {}, 0});
 }
