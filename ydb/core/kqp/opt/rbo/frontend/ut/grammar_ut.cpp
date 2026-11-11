@@ -67,13 +67,18 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
             for (const auto* parsed : {&fast, &grammar}) {
                 UNIT_ASSERT(parsed->Statements[0].PragmaValues.empty());
-                UNIT_ASSERT(parsed->Statements[1].PragmaValues == std::vector<std::string>{""});
-                UNIT_ASSERT(parsed->Statements[2].PragmaValues == (std::vector<std::string>{"a", "b"}));
+                UNIT_ASSERT_VALUES_EQUAL(parsed->Statements[1].PragmaValues.size(), 1);
+                UNIT_ASSERT(parsed->Statements[1].PragmaValues[0].Kind == EPragmaValueKind::String);
+                UNIT_ASSERT(parsed->Statements[1].PragmaValues[0].Text.empty());
+                UNIT_ASSERT_VALUES_EQUAL(parsed->Statements[2].PragmaValues.size(), 2);
+                UNIT_ASSERT_VALUES_EQUAL(parsed->Statements[2].PragmaValues[0].Text, "a");
+                UNIT_ASSERT_VALUES_EQUAL(parsed->Statements[2].PragmaValues[1].Text, "b");
             }
             for (const auto* value : {"0", "+0", "false", "`text`"}) {
-                const auto invalid = std::string("PRAGMA custom = ") + value;
-                UNIT_ASSERT_EXCEPTION(Parse(invalid, settings), TFrontendError);
-                UNIT_ASSERT_EXCEPTION(ParseGrammar(invalid, settings), TFrontendError);
+                const auto sql = std::string("PRAGMA custom = ") + value;
+                const auto fast = Parse(sql, settings), grammar = ParseGrammar(sql, settings);
+                UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(fast), SyntaxFingerprint(grammar), sql);
+                UNIT_ASSERT(fast.Statements[0].PragmaValues[0].Kind != EPragmaValueKind::String);
             }
         }
     }
@@ -150,8 +155,8 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             const auto id = fast.Statements[0].Query->Projection[0].Expression;
             UNIT_ASSERT_VALUES_EQUAL(fast.Expressions[id].Text, expected);
             const auto pragma = "PRAGMA custom = '" + text + "'; SELECT 1";
-            UNIT_ASSERT_VALUES_EQUAL(Parse(pragma, settings).Statements[0].PragmaValues.at(0), expected);
-            UNIT_ASSERT_VALUES_EQUAL(ParseGrammar(pragma, settings).Statements[0].PragmaValues.at(0), expected);
+            UNIT_ASSERT_VALUES_EQUAL(Parse(pragma, settings).Statements[0].PragmaValues.at(0).Text, expected);
+            UNIT_ASSERT_VALUES_EQUAL(ParseGrammar(pragma, settings).Statements[0].PragmaValues.at(0).Text, expected);
         };
         constexpr std::string_view hex = "0123456789abcdef";
         for (unsigned value = 0; value < 256; ++value) {

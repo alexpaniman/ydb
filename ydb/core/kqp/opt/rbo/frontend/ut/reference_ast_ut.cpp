@@ -24,6 +24,42 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(PragmasPreserveOrderAndValueForms) {
+        const auto* sql = R"(PRAGMA OrderedColumns;
+            PRAGMA yt.Pool = 'batch'; SELECT 1;
+            PRAGMA Custom(-42, +1.5, true, foo, $value, 'a\n');
+            PRAGMA yt.Pool = default; SELECT 2;)";
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)));
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(sql, grammar);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements.size(), 6);
+            const auto& bare = syntax.Statements[0];
+            UNIT_ASSERT_VALUES_EQUAL(bare.Name, "OrderedColumns");
+            UNIT_ASSERT(bare.PragmaForm == EPragmaValueForm::None && bare.PragmaValues.empty());
+            const auto& pool = syntax.Statements[1];
+            UNIT_ASSERT_VALUES_EQUAL(pool.Name, "yt.Pool");
+            UNIT_ASSERT(pool.PragmaForm == EPragmaValueForm::Assignment);
+            UNIT_ASSERT(pool.PragmaValues[0].Kind == EPragmaValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(pool.PragmaValues[0].Text, "batch");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[syntax.Statements[2].Query->Projection[0].Expression].Text, "1");
+            const auto& custom = syntax.Statements[3];
+            UNIT_ASSERT(custom.PragmaForm == EPragmaValueForm::List);
+            UNIT_ASSERT_VALUES_EQUAL(custom.PragmaValues.size(), 6);
+            using K = EPragmaValueKind;
+            const K kinds[]{K::Integer, K::Real, K::Boolean, K::Identifier, K::Binding, K::String};
+            const char* values[]{"-42", "+1.5", "TRUE", "foo", "$value", "a\n"};
+            for (unsigned i = 0; i < std::size(kinds); ++i) {
+                UNIT_ASSERT(custom.PragmaValues[i].Kind == kinds[i]);
+                UNIT_ASSERT_VALUES_EQUAL(custom.PragmaValues[i].Text, values[i]);
+            }
+            const auto& reset = syntax.Statements[4];
+            UNIT_ASSERT(reset.PragmaForm == EPragmaValueForm::Assignment);
+            UNIT_ASSERT(reset.PragmaValues[0].Kind == K::Identifier);
+            UNIT_ASSERT_VALUES_EQUAL(reset.PragmaValues[0].Text, "default");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[syntax.Statements[5].Query->Projection[0].Expression].Text, "2");
+        }
+    }
+
     Y_UNIT_TEST(Predicates) {
         const auto* sql = R"(SELECT x NOT IN (1, 2), x NOT BETWEEN SYMMETRIC 1 AND 3,
             x IS NOT NULL, x IS NOT DISTINCT FROM y, name NOT LIKE 'a%' ESCAPE '!';)";

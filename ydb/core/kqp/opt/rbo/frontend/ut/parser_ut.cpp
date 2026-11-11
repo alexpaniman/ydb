@@ -20,7 +20,9 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
         auto parsed = parse();
         auto moved = std::move(parsed);
         UNIT_ASSERT_VALUES_EQUAL(moved.Statements[0].Name, "warning");
-        UNIT_ASSERT(moved.Statements[0].PragmaValues == (std::vector<std::string>{"disable", "4527"}));
+        UNIT_ASSERT_VALUES_EQUAL(moved.Statements[0].PragmaValues.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(moved.Statements[0].PragmaValues[0].Text, "disable");
+        UNIT_ASSERT_VALUES_EQUAL(moved.Statements[0].PragmaValues[1].Text, "4527");
         const auto& declaration = moved.Statements[1];
         UNIT_ASSERT_VALUES_EQUAL(declaration.Name, "input");
         UNIT_ASSERT_VALUES_EQUAL(declaration.RowFields->at(0).first, "field`name");

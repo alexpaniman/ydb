@@ -160,6 +160,14 @@ struct TWriteStatement {
 };
 
 enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use, Write };
+enum class EPragmaValueKind : std::uint8_t { String, Integer, Real, Boolean, Identifier, Binding };
+enum class EPragmaValueForm : std::uint8_t { None, Assignment, List };
+
+struct TPragmaValue {
+    EPragmaValueKind Kind;
+    std::string Text;
+    TSourcePosition Position;
+};
 
 struct TStatement {
     TStatement(EStatementKind kind, TSourcePosition position) : Kind(kind), Position(position) {}
@@ -169,7 +177,8 @@ struct TStatement {
     // DECLARE type spelling. Pragmas retain decoded arguments separately so
     // a missing value, an empty string and a list cannot be conflated.
     std::string Value;
-    std::vector<std::string> PragmaValues;
+    std::vector<TPragmaValue> PragmaValues;
+    EPragmaValueForm PragmaForm = EPragmaValueForm::None;
     TSyntaxId Expression = NoSyntax;
     std::shared_ptr<TSelect> Query;
     std::shared_ptr<TWriteStatement> Write;

@@ -13,6 +13,16 @@ std::string Fingerprint(TParsedExpression parsed) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeRowExpressions) {
+    Y_UNIT_TEST(RelationalSemanticsAreRejectedAtTheScalarBoundary) {
+        // PR #58587's UnsupportedSemanticsRequestFallback fixture. Native row
+        // expressions have no fallback: relational syntax must fail before
+        // any aggregate/window/subquery is mistaken for an executable scalar.
+        for (const auto* sql : {"COUNT(*)", "SUM(1)", "MIN(1)", "SUM(1) OVER ()", "SUM(DISTINCT 1)",
+                "(SELECT 1)", "EXISTS (SELECT 1)", "*"}) {
+            UNIT_ASSERT_EXCEPTION_C(CompileRowExpression(sql, {}, {ETypeKind::Int64}), TFrontendError, sql);
+        }
+    }
+
     Y_UNIT_TEST(StandaloneExpressionsRetainDefaultScalarOptions) {
         const auto value = CompileRowExpression("5 / 2", {}, {ETypeKind::Int32, true});
         UNIT_ASSERT(value.Expressions[value.Root].Type == (TType{ETypeKind::Int32, true}));

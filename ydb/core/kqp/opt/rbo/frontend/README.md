@@ -29,8 +29,11 @@ Global references resolve to declaration IDs, including aliases of named queries
 source and IN uses share that resolution. Table discovery follows those bindings
 before catalog I/O. Scalar typing and local column resolution consume the owning
 syntax, never revisit the CST or reparse individual pragmas.
-Pragma arguments are decoded once into syntax. The central pragma handler
-validates warning actions and issue-code patterns. Since native compilation emits
+Pragma arguments are decoded once into typed syntax, retaining flag, assignment
+and list forms. Numbers, Booleans, names and bindings remain distinct from
+strings. The central pragma handler validates supported value kinds, warning
+actions and issue-code patterns; dynamic values remain explicitly unsupported.
+Since native compilation emits
 errors and currently has no warning stream, disabling warnings is supported;
 restoring or promoting warnings remains explicitly unsupported.
 Only checked compilation can construct `TCompiledProgram`; conversion consumes it

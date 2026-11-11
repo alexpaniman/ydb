@@ -869,13 +869,20 @@ private:
             if (auto* prefix = Child(Child(node, "opt_id_prefix_or_type"), "an_id_or_type"))
                 result.Name = pragmaName(prefix) + ".";
             result.Name += pragmaName(Child(node, "an_id"));
+            result.PragmaForm = Has(node, "(") ? EPragmaValueForm::List :
+                Has(node, "=") ? EPragmaValueForm::Assignment : EPragmaValueForm::None;
             for (auto* value : Children(node, "pragma_value")) {
+                using K = EPragmaValueKind;
                 const auto text = value->getText();
-                if (Child(value, "bind_parameter"))
-                    Unsupported(value, EFeature::Pragma, "dynamic pragma value");
-                if (text.empty() || (text.front() != '\'' && text.front() != '"' && !text.starts_with("@@")))
-                    throw TFrontendError(Position(value), "expected string value for pragma " + result.Name);
-                result.PragmaValues.push_back(Decode(text, value));
+                const auto pos = Position(value);
+                if (auto* binding = Child(value, "bind_parameter"))
+                    result.PragmaValues.push_back({K::Binding, "$" + Variable(binding), pos});
+                else if (auto* number = Child(value, "signed_number"))
+                    result.PragmaValues.push_back({Child(number, "real") ? K::Real : K::Integer, text, pos});
+                else if (Child(value, "bool_value")) result.PragmaValues.push_back({K::Boolean, Upper(text), pos});
+                else if (!text.empty() && (text.front() == '\'' || text.front() == '"' || text.starts_with("@@")))
+                    result.PragmaValues.push_back({K::String, Decode(text, value), pos});
+                else result.PragmaValues.push_back({K::Identifier, Id(Child(value, "id")), pos});
             }
             return result;
         }
@@ -1015,7 +1022,9 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     for (const auto& statement : query.Statements) {
         out << static_cast<int>(statement.Kind) << ':';
         text(statement.Name); text(statement.Value); out << statement.ScalarList;
-        out << '['; for (const auto& value : statement.PragmaValues) text(value); out << ']';
+        out << static_cast<int>(statement.PragmaForm) << '[';
+        for (const auto& value : statement.PragmaValues) { out << static_cast<int>(value.Kind); text(value.Text); }
+        out << ']';
         out << bool(statement.RowFields);
         if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
         expr(statement.Expression); if (statement.Query) select(*statement.Query);

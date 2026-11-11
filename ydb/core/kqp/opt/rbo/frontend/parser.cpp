@@ -119,6 +119,12 @@ bool SupportedNumber(std::string_view text) {
     return end == upper.size();
 }
 
+bool IsRealNumber(std::string_view text) {
+    const bool radix = text.size() > 1 && text[0] == '0' &&
+        (text[1] == 'x' || text[1] == 'X' || text[1] == 'b' || text[1] == 'B' || text[1] == 'o' || text[1] == 'O');
+    return !radix && text.find_first_of(".eE") != text.npos;
+}
+
 class TLexer {
 public:
     TLexer(std::string_view text, bool ansi, std::deque<std::string>& decoded)
@@ -379,6 +385,26 @@ private:
         return name;
     }
 
+    TPragmaValue PragmaArgument() {
+        using K = EPragmaValueKind;
+        const auto pos = Token().Position;
+        if (Is("$")) return {K::Binding, "$" + Variable(), pos};
+        if (Is("TRUE") || Is("FALSE")) return {K::Boolean, Upper(Tokens[Index++].Text), pos};
+        if (Is("+") || Is("-") || Token().Kind == EToken::Number) {
+            std::string sign;
+            if (Is("+") || Is("-")) sign = Tokens[Index++].Text;
+            if (Token().Kind != EToken::Number) Fail("expected numeric pragma value");
+            const auto token = Tokens[Index++];
+            return {IsRealNumber(token.Text) ? K::Real : K::Integer, sign + std::string(token.Text), pos};
+        }
+        if (Token().Kind == EToken::String || (Settings.AnsiQuotes && Token().Quote == '"')) {
+            if (!Token().Word.empty())
+                throw TUnsupportedFeature(EFeature::Syntax, pos, "typed pragma strings are outside the native profile");
+            return {K::String, std::string(Tokens[Index++].Text), pos};
+        }
+        return {K::Identifier, Identifier(), pos};
+    }
+
     TStatement Statement() {
         const auto pos = Token().Position;
         if (Take("DECLARE")) {
@@ -417,16 +443,9 @@ private:
             if (Take(".")) result.Name += "." + name();
             const bool parenthesized = Take("(");
             if (parenthesized || Take("=")) {
+                result.PragmaForm = parenthesized ? EPragmaValueForm::List : EPragmaValueForm::Assignment;
                 do {
-                    if (Is("$"))
-                        throw TUnsupportedFeature(EFeature::Pragma, Token().Position, "dynamic pragma values are outside the native profile");
-                    // SQL pragmas accept strings (including ANSI quoted names),
-                    // not numeric or Boolean literals with the same spelling.
-                    if (Token().Kind != EToken::String && !(Settings.AnsiQuotes && Token().Quote == '"'))
-                        Fail("expected string value for pragma " + result.Name);
-                    if (!Token().Word.empty())
-                        throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
-                    result.PragmaValues.emplace_back(Tokens[Index++].Text);
+                    result.PragmaValues.push_back(PragmaArgument());
                 } while (parenthesized && Take(","));
                 if (parenthesized) Expect(")");
             }
@@ -931,9 +950,7 @@ private:
         if (Take("FALSE")) return Add(ESyntaxKind::Boolean, pos, "false");
         if (token.Kind == EToken::Number) {
             ++Index;
-            const bool radix = token.Text.size() > 1 && token.Text[0] == '0' &&
-                (token.Text[1] == 'x' || token.Text[1] == 'X' || token.Text[1] == 'b' || token.Text[1] == 'B' || token.Text[1] == 'o' || token.Text[1] == 'O');
-            return Add(!radix && token.Text.find_first_of(".eE") != std::string::npos ? ESyntaxKind::Real : ESyntaxKind::Integer, pos, std::string(token.Text));
+            return Add(IsRealNumber(token.Text) ? ESyntaxKind::Real : ESyntaxKind::Integer, pos, std::string(token.Text));
         }
         if (token.Kind == EToken::String) {
             ++Index;

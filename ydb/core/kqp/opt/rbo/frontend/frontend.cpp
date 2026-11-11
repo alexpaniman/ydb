@@ -41,11 +41,20 @@ void CheckFunctionProfile(std::string_view name, TSourcePosition position) {
         throw TUnsupportedFeature(EFeature::Function, position, "function is outside the compatible native profile: " + std::string(name));
 }
 
+const std::string& PragmaString(const TStatement& statement, std::size_t index) {
+    const auto& value = statement.PragmaValues.at(index);
+    if (value.Kind == EPragmaValueKind::Binding)
+        throw TUnsupportedFeature(EFeature::Pragma, value.Position, "dynamic pragma values are outside the native profile");
+    if (value.Kind != EPragmaValueKind::String)
+        throw TFrontendError(value.Position, "expected string value for pragma " + statement.Name);
+    return value.Text;
+}
+
 const std::string& PragmaValue(const TStatement& statement) {
     if (statement.PragmaValues.size() > 1)
         throw TFrontendError(statement.Position, "expected at most one value for pragma " + statement.Name);
     static const std::string empty;
-    return statement.PragmaValues.empty() ? empty : statement.PragmaValues.front();
+    return statement.PragmaValues.empty() ? empty : PragmaString(statement, 0);
 }
 
 bool PragmaBoolean(const TStatement& statement, bool emptyEnabled = false) {
@@ -59,10 +68,10 @@ bool PragmaBoolean(const TStatement& statement, bool emptyEnabled = false) {
 void CheckWarningPragma(const TStatement& statement) {
     if (statement.PragmaValues.size() != 2)
         throw TFrontendError(statement.Position, "warning pragma requires action and issue code");
-    const auto action = Lower(statement.PragmaValues[0]);
+    const auto action = Lower(PragmaString(statement, 0));
     if (action != "disable" && action != "default" && action != "error")
-        throw TFrontendError(statement.Position, "unknown warning action: " + statement.PragmaValues[0]);
-    const auto& pattern = statement.PragmaValues[1];
+        throw TFrontendError(statement.Position, "unknown warning action: " + PragmaString(statement, 0));
+    const auto& pattern = PragmaString(statement, 1);
     if (pattern != "*") {
         std::uint32_t code = 0;
         const auto parsed = std::from_chars(pattern.data(), pattern.data() + pattern.size(), code);

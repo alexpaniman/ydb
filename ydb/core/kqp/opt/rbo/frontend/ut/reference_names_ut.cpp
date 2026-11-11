@@ -41,6 +41,22 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(PragmaValueKindsAreValidatedByTheBindingBoundary) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            for (const auto* value : {"0", "+0", "false", "`text`", "default"}) {
+                const auto sql = "PRAGMA ClassicDivision = " + std::string(value) + "; SELECT 1;";
+                const auto syntax = ParseNative(sql, f.Settings);
+                UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].PragmaValues.size(), 1);
+                f.Error(sql);
+            }
+            const auto syntax = ParseNative("PRAGMA TablePathPrefix = $prefix; SELECT * FROM t;", f.Settings);
+            UNIT_ASSERT(syntax.Statements[0].PragmaValues[0].Kind == EPragmaValueKind::Binding);
+            UNIT_ASSERT_EXCEPTION(CollectTables(syntax, f.Settings.Binding), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(BindNative(syntax, {}, f.Settings.Binding), TUnsupportedFeature);
+        }
+    }
+
     Y_UNIT_TEST(UnsupportedBindingDoesNotReturnPartialNames) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;
