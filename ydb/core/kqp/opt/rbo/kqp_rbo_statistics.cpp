@@ -192,6 +192,17 @@ private:
     template <typename T>
     std::optional<T> LiteralAs(TExprId id) const {
         if (id == Missing) return std::nullopt;
+        if constexpr (std::is_floating_point_v<T>) {
+            if (Arena[id].Type.Kind == ETypeKind::Decimal) {
+                // Storage statistics use Double for Decimal, as does the
+                // existing estimator. This conversion is only a statistics
+                // probe; expression values and comparison types stay exact.
+                const auto text = FormatValue({Arena[id].Type, Arena[id].Value});
+                T value;
+                if (TryFromString(TStringBuf(text), value)) return value;
+                return std::nullopt;
+            }
+        }
         return std::visit([](const auto& value) -> std::optional<T> {
             using V = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, std::string_view>) {
@@ -233,7 +244,7 @@ private:
             case K::Uint64: case K::Timestamp: return f.template operator()<ui64>();
             case K::Int64: case K::Interval: return f.template operator()<i64>();
             case K::Float: return f.template operator()<float>();
-            case K::Double: return f.template operator()<double>();
+            case K::Double: case K::Decimal: return f.template operator()<double>();
             case K::String: case K::Utf8: return f.template operator()<std::string_view>();
             default: return {};
         }
@@ -259,22 +270,38 @@ private:
     }
 
     std::optional<int> Compare(TExprId column, TExprId a, TExprId b) const {
-        return WithColumnType(column, [&]<typename T>() -> std::optional<int> {
-            const auto left = LiteralAs<T>(a), right = LiteralAs<T>(b);
-            if (!left || !right) return std::nullopt;
-            return *left < *right ? -1 : (*left > *right ? 1 : 0);
-        });
+        if (a == Missing || b == Missing || Arena[a].Type.Kind == ETypeKind::Null ||
+            Arena[b].Type.Kind == ETypeKind::Null || Arena[a].Type.IsCollection() || Arena[b].Type.IsCollection())
+            return std::nullopt;
+        if (ColumnStats(column)) {
+            const auto typed = WithColumnType(column, [&]<typename T>() -> std::optional<int> {
+                const auto left = LiteralAs<T>(a), right = LiteralAs<T>(b);
+                if (!left || !right) return std::nullopt;
+                return *left < *right ? -1 : (*left > *right ? 1 : 0);
+            });
+            if (typed) return typed;
+        }
+        // A cast column still has its source statistics type. The old range
+        // merger keeps literal bounds even when they cannot be probed in that
+        // storage type, and compares their text when typed conversion fails.
+        // In particular CAST(Utf8 AS Date) must not become an unbounded range.
+        const auto left = FormatValue({Arena[a].Type, Arena[a].Value});
+        const auto right = FormatValue({Arena[b].Type, Arena[b].Value});
+        return left < right ? -1 : (left > right ? 1 : 0);
     }
 
     double RangeEstimate(const TRange& range, bool recomputed = false) const {
+        if (range.Lower.Literal == Missing && range.Upper.Literal == Missing) return 1.0;
+        const auto comparison = range.Lower.Literal != Missing && range.Upper.Literal != Missing
+            ? Compare(range.Column, range.Lower.Literal, range.Upper.Literal) : std::nullopt;
+        if (comparison && (*comparison > 0 || (*comparison == 0 && (!range.Lower.Inclusive || !range.Upper.Inclusive))))
+            return 0.0;
         const auto* stats = ColumnStats(range.Column);
         const auto estimate = WithColumnType(range.Column, [&]<typename T>() -> std::optional<double> {
             const auto lower = LiteralAs<T>(range.Lower.Literal), upper = LiteralAs<T>(range.Upper.Literal);
             if ((range.Lower.Literal != Missing && !lower) || (range.Upper.Literal != Missing && !upper))
                 return std::nullopt;
-            if (lower && upper && (*lower > *upper || (*lower == *upper && (!range.Lower.Inclusive || !range.Upper.Inclusive))))
-                return 0.0;
-            if (lower && upper && *lower == *upper) {
+            if (comparison && *comparison == 0) {
                 if (Usage) Usage->CountMinColumns.Add(Arena[range.Column].ColumnId);
                 if (stats && stats->CountMinSketch && Stats.Nrows > 0) {
                     if constexpr (std::is_same_v<T, std::string_view>)
@@ -305,7 +332,8 @@ private:
             }
             return 0.4;
         });
-        return estimate.value_or(range.Lower.Literal == range.Upper.Literal ? EqualityDefault(range.Column) : 0.4);
+        return estimate.value_or((comparison && *comparison == 0) ||
+            (recomputed && (!Stats.ColumnStatistics || !Stats.Nrows)) ? EqualityDefault(range.Column) : 0.4);
     }
 
     std::optional<TRange> MergeRanges(const TRange& a, const TRange& b, bool conjunction) const {

@@ -931,11 +931,18 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto three = arena.Literal({K::Int64}, std::int64_t{3});
         const auto parameter = arena.Parameter("p", {K::Int64});
         const auto needle = arena.Literal({K::String}, std::string("x"));
+        const auto decimal = arena.Column(50, {K::Decimal, true, 7, 2});
+        const auto date = arena.Cast(arena.Column(60, {K::Utf8, true}), {K::Date});
         TVector<TExprId> predicates{unknown, arena.Unary(O::IsNull, b), arena.Unary(O::IsNotNull, b),
             arena.Binary(O::Contains, text, needle), arena.Binary(O::StartsWith, text, needle),
             arena.Binary(O::Contains, text, arena.Parameter("s", {K::String})),
             arena.Like(text, needle), arena.Like(text, needle, {}, {}, false),
             arena.Regex(text, needle, true), arena.Regex(text, needle, false),
+            arena.Binary(O::GreaterEqual, decimal, arena.Literal({K::Decimal, false, 35, 2}, TDecimal{99})),
+            arena.Binary(O::LessEqual, decimal, arena.Literal({K::Decimal, false, 35, 2}, TDecimal{149})),
+            arena.Binary(O::GreaterEqual, date, arena.Literal({K::Date}, std::uint64_t{10304})),
+            arena.Binary(O::LessEqual, date, arena.Literal({K::Date}, std::uint64_t{10344})),
+            arena.Binary(O::GreaterEqual, a, arena.Literal({K::Int64}, std::int64_t{10})),
             arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one),
             arena.Binary(O::Equal, arena.Binary(O::Add, a, b), one)};
         for (auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual}) {
@@ -976,6 +983,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
                 stats.ColumnStatistics->Data["30"].Type = "String";
                 stats.ColumnStatistics->Data["40"].Type = "Bool";
+                stats.ColumnStatistics->Data["50"].Type = "Decimal(7,2)";
+                stats.ColumnStatistics->Data["60"].Type = "Utf8";
             }
             TExprContext context;
             for (auto root : cases) {
@@ -1137,6 +1146,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         check(TType{K::Uint64}, std::uint64_t{18446744073709551615ULL}, ui64{18446744073709551615ULL});
         check(TType{K::Float}, 1.5, 1.5f);
         check(TType{K::Double}, 1.5, 1.5);
+        check(TType{K::Decimal, false, 7, 2}, TDecimal{150}, 1.5);
         check(TType{K::Date}, std::uint64_t{100}, ui16{100});
         check(TType{K::Datetime}, std::uint64_t{70000}, ui32{70000});
         check(TType{K::Timestamp}, std::uint64_t{1234567890123456ULL}, ui64{1234567890123456ULL});
