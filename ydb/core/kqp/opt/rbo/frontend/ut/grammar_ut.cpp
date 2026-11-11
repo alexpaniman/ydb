@@ -7,6 +7,22 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(TokenIdentitiesPreserveContextualNamesAndSplitTypeClosers) {
+        for (const auto* sql : {
+                "SELECT as_table, selectable FROM t",
+                "SELECT JSON_VALUE(j, '$.a') FROM t",
+                "SELECT `SELECT`, `json_value`, x FROM `AS_TABLE`",
+                "SELECT CAST(NULL AS Optional<Optional<Int32>>)",
+                "DECLARE $rows AS List<Struct<value:Optional<Int32>>>; SELECT * FROM AS_TABLE($rows)"}) {
+            const auto fast = Parse(sql), grammar = ParseGrammar(sql);
+            UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(fast), SyntaxFingerprint(grammar), sql);
+        }
+        for (const auto* sql : {"SELECT json_value FROM t", "SELECT json_query FROM t", "SELECT json_exists FROM t"}) {
+            UNIT_ASSERT_EXCEPTION(Parse(sql), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(ParseGrammar(sql), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(ExplicitStringKindsAndBitCastAgreeAcrossParsers) {
         const auto* sql = "SELECT 'a', 'b's, 'c'u, BITCAST(-1 AS Uint8), BITCAST(Just(TRUE) AS Int64)";
         const auto fast = Parse(sql), grammar = ParseGrammar(sql);

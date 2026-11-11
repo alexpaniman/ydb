@@ -16,6 +16,44 @@ enum EIdentifier { ExprIdentifier = 1, TableIdentifier = 2, AliasIdentifier = 4,
 struct TKeyword { std::string_view Word; unsigned Identifiers; };
 #include <ydb/core/kqp/opt/rbo/frontend/grammar_keywords.inc>
 
+// Matching identities are lexical, not semantic. AS_TABLE is an ordinary
+// function name; reserved words inherit their permissions from the grammar.
+static constexpr auto MatchKeywords = [] {
+    std::array<TKeyword, std::size(Keywords) + 1> result{};
+    std::copy(std::begin(Keywords), std::end(Keywords), result.begin());
+    result[std::size(Keywords)] = {"AS_TABLE", 15};
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.Word < b.Word; });
+    return result;
+}();
+static constexpr std::string_view SingleSymbols = "()[]{},.;:+-*/%=<>?!$&|^~";
+static constexpr std::array<std::string_view, 11> SymbolPairs{"<=", ">=", "!=", "<>", "==", "||", "??", "::", "->", "<<", ">>"};
+static constexpr std::uint16_t PairCode = 256, KeywordCode = 512;
+
+struct TTokenMatch {
+    std::uint16_t Code;
+    consteval TTokenMatch(const char* spelling) : Code(0) {
+        const std::string_view text(spelling);
+        if (text.size() == 1 && SingleSymbols.find(text.front()) != SingleSymbols.npos) {
+            Code = static_cast<unsigned char>(text.front());
+            return;
+        }
+        for (std::size_t i = 0; i < SymbolPairs.size(); ++i) if (SymbolPairs[i] == text) {
+            Code = PairCode + i;
+            return;
+        }
+        for (std::size_t i = 0; i < MatchKeywords.size(); ++i) if (MatchKeywords[i].Word == text) {
+            Code = KeywordCode + i;
+            return;
+        }
+        throw "Parser match must have a registered lexical identity";
+    }
+    std::string_view Text() const {
+        if (Code >= KeywordCode) return MatchKeywords[Code - KeywordCode].Word;
+        if (Code >= PairCode) return SymbolPairs[Code - PairCode];
+        return SingleSymbols.substr(SingleSymbols.find(static_cast<char>(Code)), 1);
+    }
+};
+
 struct TToken {
     EToken Kind;
     std::string_view Text;
@@ -26,6 +64,7 @@ struct TToken {
     std::string_view Word = {};
     unsigned Identifiers = 15;
     char Quote = 0;
+    std::uint16_t MatchCode = 0;
 };
 
 std::string Upper(std::string_view text) {
@@ -94,11 +133,12 @@ public:
         if (Alpha(ch)) {
             do { Advance(); } while (Alpha(Peek()) || Digit(Peek()));
             TToken token{EToken::Identifier, Text.substr(start, Position.Offset - start), pos};
-            const auto it = std::lower_bound(std::begin(Keywords), std::end(Keywords), token.Text,
+            const auto it = std::lower_bound(MatchKeywords.begin(), MatchKeywords.end(), token.Text,
                 [](const TKeyword& key, std::string_view word) { return CompareKeyword(key.Word, word) < 0; });
-            if (it != std::end(Keywords) && CompareKeyword(it->Word, token.Text) == 0) {
+            if (it != MatchKeywords.end() && CompareKeyword(it->Word, token.Text) == 0) {
                 token.Word = it->Word;
                 token.Identifiers = it->Identifiers;
+                token.MatchCode = KeywordCode + (it - MatchKeywords.begin());
             }
             return token;
         }
@@ -170,15 +210,19 @@ public:
         if (ch == '@' && Peek(1) == '@') {
             throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
         }
-        constexpr std::array pairs{"<=", ">=", "!=", "<>", "==", "||", "??", "::", "->", "<<", ">>"};
-        for (auto pair : pairs) {
-            if (Text.substr(start, 2) == pair) { Advance(); Advance(); return {EToken::Symbol, pair, pos}; }
+        for (std::size_t i = 0; i < SymbolPairs.size(); ++i) {
+            if (Text.substr(start, 2) == SymbolPairs[i]) {
+                Advance(); Advance();
+                TToken token{EToken::Symbol, SymbolPairs[i], pos};
+                token.MatchCode = PairCode + i;
+                return token;
+            }
         }
-        if (std::string_view("()[]{},.;:+-*/%=<>?!$&|^~").find(ch) == std::string_view::npos) {
-            throw TFrontendError(pos, "unexpected character");
-        }
+        if (SingleSymbols.find(ch) == SingleSymbols.npos) throw TFrontendError(pos, "unexpected character");
         Advance();
-        return {EToken::Symbol, Text.substr(start, 1), pos};
+        TToken token{EToken::Symbol, Text.substr(start, 1), pos};
+        token.MatchCode = static_cast<unsigned char>(ch);
+        return token;
     }
 
 private:
@@ -259,18 +303,16 @@ private:
 
     const TToken& Token(std::size_t ahead = 0) const { return Tokens[std::min(Index + ahead, Tokens.size() - 1)]; }
     bool End() const { return Token().Kind == EToken::End; }
-    [[gnu::always_inline]] inline bool Is(std::string_view text, std::size_t ahead = 0) const {
-        const auto& token = Token(ahead);
-        return (token.Kind == EToken::Identifier && (token.Word == text ||
-            (token.Word.empty() && token.Text.size() == text.size() && CompareKeyword(text, token.Text) == 0))) ||
-            (token.Kind == EToken::Symbol && token.Text == text);
+    [[gnu::always_inline]] inline bool Is(TTokenMatch text, std::size_t ahead = 0) const {
+        return Token(ahead).MatchCode == text.Code;
     }
-    bool Take(std::string_view text) { if (!Is(text)) return false; ++Index; return true; }
-    void Expect(std::string_view text) { if (!Take(text)) Fail("expected " + std::string(text)); }
+    [[gnu::always_inline]] inline bool Take(TTokenMatch text) { if (!Is(text)) return false; ++Index; return true; }
+    void Expect(TTokenMatch text) { if (!Take(text)) Fail("expected " + std::string(text.Text())); }
     bool TakeTypeEnd() {
         if (Take(">")) return true;
         if (!Is(">>")) return false;
         Tokens[Index].Text = ">";
+        Tokens[Index].MatchCode = TTokenMatch(">").Code;
         ++Tokens[Index].Position.Offset; ++Tokens[Index].Position.Column;
         return true;
     }
@@ -770,7 +812,7 @@ private:
                 }
                 const bool list = Take("[");
                 if (!list) Expect("(");
-                const auto end = list ? "]" : ")";
+                const auto end = list ? TTokenMatch("]") : TTokenMatch(")");
                 if (!list && (Is("SELECT") || Is("WITH") || Is("FROM"))) {
                     auto query = Select(); Expect(")");
                     auto id = Add(ESyntaxKind::In, pos, {}, {left}); Result.Expressions[id].Query = std::move(query); left = id;

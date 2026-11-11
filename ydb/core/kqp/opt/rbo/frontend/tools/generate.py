@@ -26,12 +26,14 @@ def generate(path):
         return result
 
     categories = [tokens(rule) for rule in ("id_expr", "id_table_or_type", "id_as_compat", "id_or_type")]
-    keywords = re.findall(r"^([A-Z][A-Z_0-9]*):\s*((?:[A-Z] +)*[A-Z])\s*;", grammar, re.M)
+    keywords = re.findall(r"^([A-Z][A-Z_0-9]*):\s*((?:(?:[A-Z]|'_') +)*(?:[A-Z]|'_'))\s*;", grammar, re.M)
+    keywords = [(name, ''.join('_' if part == "'_'" else part for part in spelling.split()))
+                for name, spelling in keywords]
     print("// Generated from SQLv1Antlr4.g.in. Do not edit.")
     print("static constexpr TKeyword Keywords[] = {")
-    for name, spelling in sorted(keywords, key=lambda row: row[1].replace(" ", "")):
+    for name, spelling in sorted(keywords, key=lambda row: row[1]):
         mask = sum(1 << i for i, category in enumerate(categories) if name in category)
-        print(f'    {{"{spelling.replace(" ", "")}", {mask}}},')
+        print(f'    {{"{spelling}", {mask}}},')
     print("};")
 
 
