@@ -176,9 +176,13 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     auto arena = std::make_shared<NFrontend::TExpressionArena>(std::move(program.Expressions));
     // Checked frontend IDs are dense indexes into Columns and Relations.
     // Keep their translation bindings in vectors instead of allocating hash nodes.
-    std::vector<std::optional<std::string_view>> sourceAliases(program.Columns.size());
-    for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read)
-        for (const auto column : relation.Columns) if (!sourceAliases.at(column)) sourceAliases[column] = relation.Alias;
+    // Convert a source spelling once; TString shares its owned bytes across
+    // the source's columns and independently owned result registries.
+    std::vector<std::optional<TString>> sourceAliases(program.Columns.size());
+    for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read) {
+        const auto alias = String(relation.Alias);
+        for (const auto column : relation.Columns) if (!sourceAliases.at(column)) sourceAliases[column] = alias;
+    }
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     auto& roots = query.Roots;
@@ -191,7 +195,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         props.NativeExpressions = arena;
         for (NFrontend::TColumnId id = 0; id < program.Columns.size(); ++id) {
             const auto& column = program.Columns[id];
-            props.InfoUnitRegistry.Add(TInfoUnit(String(sourceAliases[id].value_or(column.Qualifier)), String(column.Name)));
+            props.InfoUnitRegistry.Add(TInfoUnit(sourceAliases[id] ? *sourceAliases[id] : String(column.Qualifier), String(column.Name)));
         }
         auto expression = [&](NFrontend::TExprId id) {
             return TExpression::FromNative(arena, id, &props, Position((*arena)[id].Position, ctx));
