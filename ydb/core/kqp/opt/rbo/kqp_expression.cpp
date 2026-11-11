@@ -141,6 +141,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::RegexMatch: return "RegexMatch";
         case TNativeOp::RegexGrep: return "RegexGrep";
         case TNativeOp::TupleElement: return "TupleElement";
+        case TNativeOp::Member: return "Member";
         case TNativeOp::ListElement: return "ListElement";
         case TNativeOp::ListFromRange: return "ListFromRange";
         case TNativeOp::ListConcat: return "ListConcat";

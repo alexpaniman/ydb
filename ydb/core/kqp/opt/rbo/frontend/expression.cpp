@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <locale>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <type_traits>
@@ -26,8 +27,8 @@ using O = EOpcode;
 
 constexpr std::string_view TypeNames[]{"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
     "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval",
-    "Date32", "Datetime64", "Timestamp64", "Interval64", "Uuid", "Json", "JsonDocument", "Yson", "Calendar", "Tuple", "List"};
-static_assert(std::size(TypeNames) == static_cast<unsigned>(K::List) + 1);
+    "Date32", "Datetime64", "Timestamp64", "Interval64", "Uuid", "Json", "JsonDocument", "Yson", "Calendar", "Tuple", "List", "Struct"};
+static_assert(std::size(TypeNames) == static_cast<unsigned>(K::Struct) + 1);
 
 bool EqualAsciiCase(std::string_view left, std::string_view right) {
     if (left.size() != right.size()) return false;
@@ -40,6 +41,16 @@ bool EqualAsciiCase(std::string_view left, std::string_view right) {
 
 [[noreturn]] void Fail(TSourcePosition position, std::string message) {
     throw TFrontendError(position, std::move(message));
+}
+
+template<class TValue>
+std::vector<std::size_t> StructOrder(std::span<const std::pair<std::string, TValue>> fields, TSourcePosition position) {
+    std::vector<std::size_t> order(fields.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::sort(order.begin(), order.end(), [&](auto a, auto b) { return fields[a].first < fields[b].first; });
+    for (std::size_t i = 1; i < order.size(); ++i) if (fields[order[i - 1]].first == fields[order[i]].first)
+        Fail(position, "Duplicate struct field: " + fields[order[i]].first);
+    return order;
 }
 
 std::string Lower(std::string_view text) {
@@ -853,7 +864,8 @@ void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePo
     if (value.Type.IsCollection()) {
         const auto* tuple = std::get_if<TTuple>(&value.Data);
         const bool list = value.Type.Kind == K::List;
-        const auto fields = list ? std::span<const TType>{} : arena.TupleItems(value.Type);
+        const auto fields = list ? std::span<const TType>{} : value.Type.Kind == K::Struct ?
+            arena.StructItems(value.Type) : arena.TupleItems(value.Type);
         if (!tuple || !*tuple || (!list && (*tuple)->Items.size() != fields.size())) Fail(position, "Collection value shape mismatch");
         for (std::size_t i = 0; i < (*tuple)->Items.size(); ++i) {
             if ((*tuple)->Items[i].Type != (list ? arena.ListItem(value.Type) : fields[i])) Fail(position, "Collection element type mismatch");
@@ -1123,13 +1135,20 @@ TType ParseType(std::string_view name, TSourcePosition position) {
 void TExpressionArena::ValidateType(TType type, TSourcePosition position) const {
     ValidateScalarType(type, position);
     if (type.OptionalDepth > 64) throw TResourceLimitError(position, "Optional type nesting exceeds 64");
-    if (type.IsCollection() && (!type.Shape || type.Shape > TupleTypes_.size()))
+    if (type.IsCollection() && (!type.Shape || type.Shape > Shapes_.size()))
         Fail(position, "Invalid collection shape in expression arena");
-    if (type.Kind == K::List && TupleTypes_[type.Shape - 1].size() != 1)
+    if (type.IsCollection() && Shapes_[type.Shape - 1].Named != (type.Kind == K::Struct))
+        Fail(position, "Collection shape has incompatible field names");
+    if (type.Kind == K::List && Shapes_[type.Shape - 1].Items.size() != 1)
         Fail(position, "List types require exactly one item type");
 }
 
 TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition position) {
+    return InternShape(items, {}, false, position);
+}
+
+TType TExpressionArena::InternShape(std::span<const TType> items, std::span<const std::string> names,
+    bool named, TSourcePosition position) {
     std::size_t hash = items.size();
     unsigned depth = 1;
     bool nullable = false;
@@ -1137,37 +1156,68 @@ TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition 
         ValidateType(item, position);
         if (item.IsDocument()) throw TUnsupportedFeature(EFeature::Type, position, "JSON/YSON tuple states are outside the native scalar profile");
         if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
-        if (item.IsCollection()) depth = std::max(depth, 1u + TupleProperties_[item.Shape - 1].Depth);
+        if (item.IsCollection()) depth = std::max(depth, 1u + Shapes_[item.Shape - 1].Depth);
         nullable |= CanContainNull(item);
         const std::uint64_t bits = static_cast<unsigned>(item.Kind) | (std::uint64_t{item.OptionalDepth} << 8) |
             (std::uint64_t{item.Precision} << 16) | (std::uint64_t{item.Scale} << 24) | (std::uint64_t{item.Shape} << 32);
         hash ^= std::hash<std::uint64_t>{}(bits) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
     }
-    if (depth > 64) throw TResourceLimitError(position, "Collection type nesting exceeds 64");
-    const auto [begin, end] = TupleHashes_.equal_range(hash);
-    for (auto it = begin; it != end; ++it) {
-        const auto& existing = TupleTypes_[it->second - 1];
-        if (std::equal(items.begin(), items.end(), existing.begin(), existing.end())) return {K::Tuple, false, 0, 0, it->second};
+    if (named) {
+        hash ^= 0x85ebca6b;
+        for (const auto& name : names)
+            hash ^= std::hash<std::string_view>{}(name) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
     }
-    if (TupleTypes_.size() == std::numeric_limits<std::uint32_t>::max())
-        throw TResourceLimitError(position, "Too many native tuple shapes");
-    const auto id = static_cast<std::uint32_t>(TupleTypes_.size() + 1);
-    TupleTypes_.emplace_back(items.begin(), items.end());
-    TupleProperties_.push_back({static_cast<std::uint8_t>(depth), nullable});
-    TupleHashes_.emplace(hash, id);
-    return {K::Tuple, false, 0, 0, id};
+    if (depth > 64) throw TResourceLimitError(position, "Collection type nesting exceeds 64");
+    const auto kind = named ? K::Struct : K::Tuple;
+    const auto [begin, end] = ShapeHashes_.equal_range(hash);
+    for (auto it = begin; it != end; ++it) {
+        const auto& existing = Shapes_[it->second - 1];
+        if (existing.Named == named && std::equal(items.begin(), items.end(), existing.Items.begin(), existing.Items.end()) &&
+            std::equal(names.begin(), names.end(), existing.Names.begin(), existing.Names.end()))
+            return {kind, false, 0, 0, it->second};
+    }
+    if (Shapes_.size() == std::numeric_limits<std::uint32_t>::max())
+        throw TResourceLimitError(position, "Too many native collection shapes");
+    const auto id = static_cast<std::uint32_t>(Shapes_.size() + 1);
+    Shapes_.push_back({{items.begin(), items.end()}, {names.begin(), names.end()}, static_cast<std::uint8_t>(depth), nullable, named});
+    ShapeHashes_.emplace(hash, id);
+    return {kind, false, 0, 0, id};
 }
 
 std::span<const TType> TExpressionArena::TupleItems(TType type) const {
     ValidateType(type);
     if (type.Kind != K::Tuple) Fail({}, "Expected a tuple type");
-    return TupleTypes_[type.Shape - 1];
+    return Shapes_[type.Shape - 1].Items;
+}
+
+TType TExpressionArena::StructType(std::span<const std::pair<std::string, TType>> fields, TSourcePosition position) {
+    const auto order = StructOrder(fields, position);
+    std::vector<std::string> names;
+    std::vector<TType> types;
+    names.reserve(fields.size()); types.reserve(fields.size());
+    for (const auto i : order) {
+        names.push_back(fields[i].first);
+        types.push_back(fields[i].second);
+    }
+    return InternShape(types, names, true, position);
+}
+
+std::span<const std::string> TExpressionArena::StructNames(TType type) const {
+    ValidateType(type);
+    if (type.Kind != K::Struct) Fail({}, "Expected a struct type");
+    return Shapes_[type.Shape - 1].Names;
+}
+
+std::span<const TType> TExpressionArena::StructItems(TType type) const {
+    ValidateType(type);
+    if (type.Kind != K::Struct) Fail({}, "Expected a struct type");
+    return Shapes_[type.Shape - 1].Items;
 }
 
 bool TExpressionArena::CanContainNull(TType type) const {
     ValidateType(type);
     return type.OptionalDepth || type.Kind == K::Null ||
-        (type.IsCollection() && TupleProperties_[type.Shape - 1].NullableItems);
+        (type.IsCollection() && Shapes_[type.Shape - 1].NullableItems);
 }
 
 TType TExpressionArena::ListType(TType item, TSourcePosition position) {
@@ -1179,7 +1229,7 @@ TType TExpressionArena::ListType(TType item, TSourcePosition position) {
 TType TExpressionArena::ListItem(TType type) const {
     ValidateType(type);
     if (type.Kind != K::List) Fail({}, "Expected a list type");
-    return TupleTypes_[type.Shape - 1].at(0);
+    return Shapes_[type.Shape - 1].Items.at(0);
 }
 
 TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition position) {
@@ -1248,6 +1298,33 @@ TExprId TExpressionArena::TupleElement(TExprId tuple, std::uint32_t index, TSour
     return Append({O::TupleElement, type, position, {tuple}, std::uint64_t{index}, {}, 0});
 }
 
+TExprId TExpressionArena::Struct(std::span<const std::pair<std::string, TExprId>> fields, TSourcePosition position) {
+    const auto order = StructOrder(fields, position);
+    std::vector<std::string> names;
+    std::vector<TType> types;
+    std::vector<TExprId> arguments;
+    names.reserve(fields.size()); types.reserve(fields.size()); arguments.reserve(fields.size());
+    for (const auto i : order) {
+        names.push_back(fields[i].first);
+        types.push_back((*this)[fields[i].second].Type);
+        arguments.push_back(fields[i].second);
+    }
+    const auto type = InternShape(types, names, true, position);
+    return Append({O::Collection, type, position, std::move(arguments), {}, {}, 0});
+}
+
+TExprId TExpressionArena::Member(TExprId record, std::string_view name, TSourcePosition position) {
+    const auto source = (*this)[record].Type;
+    if (source.Kind != K::Struct || source.OptionalDepth > 1) Fail(position, "Member access requires a flat struct");
+    const auto names = StructNames(source);
+    const auto found = std::lower_bound(names.begin(), names.end(), name);
+    if (found == names.end() || *found != name) Fail(position, "Unknown struct field: " + std::string(name));
+    const auto index = static_cast<std::uint64_t>(found - names.begin());
+    const auto item = StructItems(source)[index];
+    const auto type = source.OptionalDepth ? item.Optional() : item;
+    return Append({O::Member, type, position, {record}, index, std::string(name), 0});
+}
+
 TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePosition position) {
     const auto source = (*this)[list].Type, key = (*this)[index].Type;
     if (source.Kind == K::Null) return list;
@@ -1274,7 +1351,7 @@ TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePositi
 
 TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position) {
     const auto value = (*this)[lookup].Type, values = (*this)[collection].Type;
-    if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsDocument())
+    if ((values.Kind != K::Tuple && values.Kind != K::List) || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsDocument())
         throw TUnsupportedFeature(EFeature::Type, position, "IN requires a flat collection and a scalar lookup");
     const TType item = values.Kind == K::List ? ListItem(values) : TType{};
     const bool empty = (*this)[collection].Op == O::Collection && (*this)[collection].Arguments.empty();
@@ -1316,8 +1393,9 @@ TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool 
 TType TExpressionArena::ImportType(const TExpressionArena& source, TType type) {
     source.ValidateType(type);
     if (&source == this || !type.IsCollection()) return type;
-    if (source.TupleProperties_[type.Shape - 1].Depth == 1) {
-        type.Shape = TupleType(source.TupleTypes_[type.Shape - 1]).Shape;
+    if (source.Shapes_[type.Shape - 1].Depth == 1) {
+        const auto& shape = source.Shapes_[type.Shape - 1];
+        type.Shape = InternShape(shape.Items, shape.Names, shape.Named, {}).Shape;
         return type;
     }
     // Shapes are arena-local DAG nodes. Memoize shared shapes so importing a
@@ -1330,8 +1408,9 @@ TType TExpressionArena::ImportType(const TExpressionArena& source, TType type) {
             return item;
         }
         std::vector<TType> fields;
-        for (const auto field : source.TupleTypes_[item.Shape - 1]) fields.push_back(self(self, field));
-        const auto shape = TupleType(fields).Shape;
+        const auto& sourceShape = source.Shapes_[item.Shape - 1];
+        for (const auto field : sourceShape.Items) fields.push_back(self(self, field));
+        const auto shape = InternShape(fields, sourceShape.Names, sourceShape.Named, {}).Shape;
         shapes.emplace(item.Shape, shape);
         item.Shape = shape;
         return item;
@@ -2144,7 +2223,14 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::ListConcat: return Call("ListConcat", node.Arguments, node.Position);
         case O::RandomUuid: return Call("RandomUuid", node.Arguments, node.Position);
         case O::RandomNumber: return Call("RandomNumber", node.Arguments, node.Position);
-        case O::Collection: return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
+        case O::Collection: {
+            if (node.Type.Kind != K::Struct) return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
+            std::vector<std::pair<std::string, TExprId>> fields;
+            const auto names = StructNames(node.Type);
+            for (std::size_t i = 0; i < names.size(); ++i) fields.emplace_back(names[i], node.Arguments[i]);
+            return Struct(fields, node.Position);
+        }
+        case O::Member: return Member(node.Arguments[0], node.Name, node.Position);
         case O::TupleElement: return TupleElement(node.Arguments[0], std::get<std::uint64_t>(node.Value), node.Position);
         case O::ListElement: return ListElement(node.Arguments[0], node.Arguments[1], node.Position);
         case O::InCollection: return InCollection(node.Arguments[0], node.Arguments[1], node.Name == "ansi", node.Position);
@@ -2204,7 +2290,8 @@ TExprId TExpressionArena::Import(const TExpressionArena& source, TExprId root,
                 if (const auto* collection = std::get_if<TTuple>(&data); collection && *collection) {
                     auto items = (*collection)->Items;
                     for (std::size_t i = 0; i < items.size(); ++i) {
-                        items[i].Type = type.Kind == K::List ? ListItem(type) : TupleItems(type)[i];
+                        items[i].Type = type.Kind == K::List ? ListItem(type) : type.Kind == K::Struct ?
+                            StructItems(type)[i] : TupleItems(type)[i];
                         items[i].Data = self(self, std::move(items[i].Data), items[i].Type);
                     }
                     return std::make_shared<const TTupleValue>(TTupleValue{std::move(items)});
@@ -2553,7 +2640,7 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
         const auto& value = items[index];
         return {node.Type, node.Type.OptionalDepth > 1 ? TScalar{std::make_shared<const TValue>(value)} : value.Data};
     }
-    if (node.Op == O::TupleElement) {
+    if (node.Op == O::TupleElement || node.Op == O::Member) {
         const auto& tuple = argument(0);
         if (tuple.IsNull()) return {node.Type, {}};
         const auto& item = std::get<TTuple>(tuple.Data)->Items.at(std::get<std::uint64_t>(node.Value));

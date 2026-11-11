@@ -130,7 +130,8 @@ bool TPhysicalWindowBuilder::UsesRangePeerGroups(const TOpWindow& window) {
     for (const auto& sortElement : window.GetSortElements().Items()) {
 
             const auto kind = window.GetInput()->GetNativeIUType(sortElement.first).Kind;
-            if (kind == NFrontend::ETypeKind::Tuple || kind == NFrontend::ETypeKind::Null || kind == NFrontend::ETypeKind::Calendar) return false;
+            if (kind == NFrontend::ETypeKind::Tuple || kind == NFrontend::ETypeKind::Struct ||
+                kind == NFrontend::ETypeKind::Null || kind == NFrontend::ETypeKind::Calendar) return false;
 
     }
     return HasAggregate(window);

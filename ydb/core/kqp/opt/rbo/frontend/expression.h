@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -38,7 +39,7 @@ enum class ETypeKind : std::uint8_t {
     Date32, Datetime64, Timestamp64, Interval64, Uuid, Json, JsonDocument, Yson,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
-    Calendar, Tuple, List,
+    Calendar, Tuple, List, Struct,
 };
 
 struct TType {
@@ -63,7 +64,7 @@ struct TType {
     bool IsJson() const { return Kind == ETypeKind::Json || Kind == ETypeKind::JsonDocument; }
     bool IsDocument() const { return IsJson() || Kind == ETypeKind::Yson; }
     bool IsSigned() const;
-    bool IsCollection() const { return Kind == ETypeKind::Tuple || Kind == ETypeKind::List; }
+    bool IsCollection() const { return Kind == ETypeKind::Tuple || Kind == ETypeKind::List || Kind == ETypeKind::Struct; }
     std::string ToString() const;
 };
 
@@ -112,7 +113,7 @@ enum class EOpcode : std::uint8_t {
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
     ListFromRange, ListConcat, ListLength, ListHasItems, Minimum, Maximum,
     BitNot, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, IsNotDistinct,
-    BitCast, HasNull, RegexMatch, RegexGrep,
+    BitCast, HasNull, RegexMatch, RegexGrep, Member,
 };
 
 struct TExprNode {
@@ -144,6 +145,9 @@ public:
     // need no arena lookup; shared nested shapes are stored only once.
     TType TupleType(std::span<const TType> items, TSourcePosition position = {});
     std::span<const TType> TupleItems(TType type) const;
+    TType StructType(std::span<const std::pair<std::string, TType>> fields, TSourcePosition position = {});
+    std::span<const std::string> StructNames(TType type) const;
+    std::span<const TType> StructItems(TType type) const;
     TType ListType(TType item, TSourcePosition position = {});
     TType ListItem(TType type) const;
     TType ParseTypeName(std::string_view name, TSourcePosition position = {});
@@ -152,6 +156,10 @@ public:
     bool CanContainNull(TType type) const;
 
     TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
+    // Struct shapes and values use lexical field order, independent of the
+    // caller's order. Field names are part of the interned native type.
+    TExprId Struct(std::span<const std::pair<std::string, TExprId>> fields, TSourcePosition position = {});
+    TExprId Member(TExprId record, std::string_view name, TSourcePosition position = {});
     TExprId TupleElement(TExprId tuple, std::uint32_t index, TSourcePosition position = {});
     TExprId ListElement(TExprId list, TExprId index, TSourcePosition position = {});
     TExprId InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position = {});
@@ -224,14 +232,21 @@ public:
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:
+    TType InternShape(std::span<const TType> items, std::span<const std::string> names,
+        bool named, TSourcePosition position);
     TType ParseTypeName(std::string_view name, TSourcePosition position, unsigned depth);
     TExprId Append(TExprNode node);
     TExprId Rebuild(TExprNode node);
     std::vector<TExprNode> Nodes_;
-    std::vector<std::vector<TType>> TupleTypes_;
-    struct TShapeProperties { std::uint8_t Depth; bool NullableItems; };
-    std::vector<TShapeProperties> TupleProperties_;
-    std::unordered_multimap<std::size_t, std::uint32_t> TupleHashes_;
+    struct TShape {
+        std::vector<TType> Items;
+        std::vector<std::string> Names;
+        std::uint8_t Depth;
+        bool NullableItems;
+        bool Named;
+    };
+    std::vector<TShape> Shapes_;
+    std::unordered_multimap<std::size_t, std::uint32_t> ShapeHashes_;
 };
 
 // Small reference executor for the native scalar contract. If/Coalesce/And/Or

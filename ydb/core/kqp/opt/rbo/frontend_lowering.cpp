@@ -139,6 +139,16 @@ private:
     TExprNode::TPtr Nothing(NFrontend::TType type) {
         return type.Kind == K::Null ? Call("Null", {}, type) : Call("Nothing", {Type(type.Optional())}, type.Optional());
     }
+    TExprNode::TPtr Struct(TExprNode::TListType values, NFrontend::TType type) {
+        const auto names = Arena.StructNames(type);
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            auto field = Ctx.NewList(Pos, {Atom(String(names[i])), values[i]});
+            field->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
+                Ctx.MakeType<TUnitExprType>(), values[i]->GetTypeAnn()}));
+            values[i] = std::move(field);
+        }
+        return Call("AsStruct", std::move(values), type.Required());
+    }
     TExprNode::TPtr Literal(NFrontend::TType type, const NFrontend::TScalar& value) {
         if (std::holds_alternative<std::monostate>(value)) {
             return type.Kind == K::Null ? Call("Null", {}, type) : Nothing(type);
@@ -160,6 +170,11 @@ private:
             auto tuple = Ctx.NewList(Pos, std::move(items));
             tuple->SetTypeAnn(ExportNativeType(type.Required(), Ctx, &Arena));
             return Lift(std::move(tuple), type);
+        }
+        if (type.Kind == K::Struct) {
+            TExprNode::TListType items;
+            for (const auto& item : std::get<NFrontend::TTuple>(value)->Items) items.push_back(Literal(item.Type, item.Data));
+            return Lift(Struct(std::move(items), type), type);
         }
         const auto text = type.Kind == K::Uuid ? std::get<std::string>(value) : NFrontend::FormatValue({type, value});
         TExprNode::TListType args{Atom(String(text))};
@@ -195,6 +210,14 @@ private:
             const auto fields = Arena.TupleItems(type);
             for (std::size_t i = 0; i < fields.size(); ++i) if (Arena.CanContainNull(fields[i]))
                 items.push_back(HasNull(Call("Nth", {value, Atom(ToString(i))}, fields[i]), fields[i]));
+            return Call("Or", std::move(items), {K::Bool});
+        }
+        if (type.Kind == K::Struct) {
+            TExprNode::TListType items;
+            const auto names = Arena.StructNames(type);
+            const auto fields = Arena.StructItems(type);
+            for (std::size_t i = 0; i < fields.size(); ++i) if (Arena.CanContainNull(fields[i]))
+                items.push_back(HasNull(Call("Member", {value, Atom(String(names[i]))}, fields[i]), fields[i]));
             return Call("Or", std::move(items), {K::Bool});
         }
         Y_ENSURE(type.Kind == K::List, "Nullable collection expected");
@@ -554,6 +577,7 @@ private:
                 });
             case O::ListConcat: return ListConcat(args[0], args[1], types[0], types[1], type);
             case O::Collection: {
+                if (type.Kind == K::Struct) return Struct(std::move(args), type);
                 if (type.Kind == K::List) {
                     args.insert(args.begin(), Type(type));
                     return Call("List", std::move(args), type);
@@ -589,6 +613,12 @@ private:
                 const auto itemType = Arena.TupleItems(types[0])[index];
                 return Present(args, types, type, [&](TExprNode::TListType values) {
                     return Call("Nth", {values[0], Atom(ToString(index))}, itemType);
+                });
+            }
+            case O::Member: {
+                const auto itemType = Arena.StructItems(types[0])[std::get<std::uint64_t>(node.Value)];
+                return Present(args, types, type, [&](TExprNode::TListType values) {
+                    return Call("Member", {values[0], Atom(String(node.Name))}, itemType);
                 });
             }
             case O::Literal: return Literal(type, node.Value);
@@ -724,6 +754,14 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
             if (const auto it = shapes.find(key); it != shapes.end()) return it->second;
             const TTypeAnnotationNode* result;
             if (item.Kind == K::List) result = ctx.MakeType<TListExprType>(self(self, arena->ListItem(item)));
+            else if (item.Kind == K::Struct) {
+                TVector<const TItemExprType*> fields;
+                const auto names = arena->StructNames(item);
+                const auto types = arena->StructItems(item);
+                for (std::size_t i = 0; i < names.size(); ++i)
+                    fields.push_back(ctx.MakeType<TItemExprType>(String(names[i]), self(self, types[i])));
+                result = ctx.MakeType<TStructExprType>(fields);
+            }
             else {
                 TVector<const TTypeAnnotationNode*> fields;
                 for (const auto field : arena->TupleItems(item)) fields.push_back(self(self, field));

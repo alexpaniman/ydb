@@ -74,7 +74,7 @@ inline void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TEx
                 UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
             case K::Decimal: UNIT_ASSERT_C(value.GetInt128() == std::get<NFrontend::TDecimal>(expected.Data).Coefficient, sql); break;
             case K::Null: UNIT_FAIL("unexpected non-null Null");
-            case K::Tuple: {
+            case K::Tuple: case K::Struct: {
                 const auto& items = std::get<NFrontend::TTuple>(expected.Data)->Items;
                 for (std::size_t i = 0; i < items.size(); ++i) self(self, value.GetElement(i), items[i]);
                 break;
