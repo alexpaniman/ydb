@@ -14,7 +14,88 @@ namespace {
 
 using namespace NYdb;
 
+// Full query texts, preambles, column schemas and Query API from PR #58587's
+// fallback workload fixtures. NativeRequired strengthens admission to require
+// all queries, including inputs that the legacy frontend cannot express.
+void CheckOriginalWorkload(const TString& name, ui32 first, ui32 last) {
+    TVector<TString> queries;
+    const TString preamble =
+        "$to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };\n"
+        "$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };\n"
+        "$round = ($x,$y) -> {return $x;};\n";
+    for (ui32 id = first; id <= last; ++id)
+        queries.push_back(preamble + TFileInput(SRC_("data/yql-" + name + "/q" + ToString(id) + ".yql")).ReadAll());
+    struct TOutcome { EStatus Status; TString Issues; ui64 Successes; ui64 Failures; };
+    TVector<TOutcome> baseline;
+    bool baselineSucceeded = false;
+    for (const bool native : {false, true}) {
+        NKikimrConfig::TAppConfig app;
+        auto* config = app.MutableTableServiceConfig();
+        config->SetEnableNewRBO(true);
+        config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+            : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetEnableFallbackOnMultipleStatements(false);
+        config->SetEnableInlineJoinFiltersAfterCBO(false);
+        config->SetEnableNewRBOPhysicalStagePeephole(false);
+        config->SetAllowOlapDataQuery(true);
+        config->SetDefaultLangVer(NYql::GetMaxLangVersion());
+        config->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+        auto settings = TKikimrSettings(app).SetWithSampleTables(false);
+        settings.LogSettings = TTestLogSettings();
+        settings.LogSettings->DefaultLogPriority = NActors::NLog::PRI_CRIT;
+        TKikimrRunner kikimr(settings);
+        auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto schema = TFileInput(SRC_("data/schema/" + name + ".sql")).ReadAll();
+        const auto columnSchema = std::regex_replace(std::string(schema.data(), schema.size()),
+            std::regex(R"(CREATE TABLE [^\(]+ \([^;]*\))", std::regex::multiline),
+            "$& WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 16);");
+        const auto created = tableSession.ExecuteSchemeQuery(TString(columnSchema)).GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+        for (std::size_t i = 0; i < queries.size(); ++i) {
+            const auto beforeSuccess = successes->Val(), beforeFailure = failures->Val();
+            const auto result = session.ExecuteQuery(queries[i], NQuery::TTxControl::NoTx(),
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).ExtractValueSync();
+            const TOutcome outcome{result.GetStatus(), result.GetIssues().ToString(),
+                successes->Val() - beforeSuccess, failures->Val() - beforeFailure};
+            const TString context = TStringBuilder() << name << " q" << first + i << " native=" << native
+                << ": " << outcome.Issues;
+            if (result.IsSuccess()) {
+                UNIT_ASSERT_C(result.GetStats() && result.GetStats()->GetPlan()
+                    && !result.GetStats()->GetPlan()->empty(), context);
+                UNIT_ASSERT_C(outcome.Successes > 0, context);
+                UNIT_ASSERT_VALUES_EQUAL_C(outcome.Failures, 0, context);
+            }
+            if (!native) {
+                baseline.push_back(outcome);
+                baselineSucceeded |= result.IsSuccess();
+            }
+            else {
+                UNIT_ASSERT_C(result.IsSuccess(), context << "\nLegacy: " << baseline[i].Issues);
+                UNIT_ASSERT_C(outcome.Issues.find("[native_frontend_fallback]") == std::string::npos, context);
+                if (baseline[i].Status == EStatus::SUCCESS) {
+                    UNIT_ASSERT_VALUES_EQUAL_C(outcome.Successes, baseline[i].Successes, context);
+                    UNIT_ASSERT_VALUES_EQUAL_C(outcome.Failures, baseline[i].Failures, context);
+                }
+            }
+        }
+    }
+    UNIT_ASSERT_C(baselineSucceeded, "No legacy query compiled in " << name);
+}
+
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    Y_UNIT_TEST(NativeOriginalTPCH_YQL) { CheckOriginalWorkload("tpch", 1, 22); }
+    Y_UNIT_TEST(NativeOriginalTPCDS_YQL_1_25) { CheckOriginalWorkload("tpcds", 1, 25); }
+    Y_UNIT_TEST(NativeOriginalTPCDS_YQL_26_50) { CheckOriginalWorkload("tpcds", 26, 50); }
+    Y_UNIT_TEST(NativeOriginalTPCDS_YQL_51_75) { CheckOriginalWorkload("tpcds", 51, 75); }
+    Y_UNIT_TEST(NativeOriginalTPCDS_YQL_76_99) { CheckOriginalWorkload("tpcds", 76, 99); }
+    Y_UNIT_TEST(NativeOriginalClickBench_YQL) { CheckOriginalWorkload("clickbench", 1, 43); }
+
+
     // PR #58587 catalog/name-resolution cases, using required native routing
     // instead of polling asynchronous logs for an admission marker.
     Y_UNIT_TEST(NativeResolvesNamesUsingLoadedMetadata) {
