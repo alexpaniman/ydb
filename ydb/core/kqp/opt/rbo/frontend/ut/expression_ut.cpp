@@ -447,6 +447,40 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         }
     }
 
+    Y_UNIT_TEST(RegexModeAndDependenciesSurviveRebindingAndFolding) {
+        for (const bool fullMatch : {false, true}) {
+            TExpressionArena arena;
+            const auto input = arena.Column(1, {K::String, true});
+            const auto pattern = arena.Parameter("pattern", {K::String});
+            const auto root = arena.Regex(input, pattern, fullMatch);
+            const auto rewritten = arena.RewriteColumns(root, [&](auto, auto id, auto type, auto pos) {
+                return arena.Column(id + 1, type, pos);
+            });
+            TExpressionArena copy;
+            const auto imported = copy.Import(arena, rewritten, [&](auto id, auto type, auto pos) {
+                return copy.Column(id + 1, type, pos);
+            });
+            const auto folded = copy.FoldConstants(std::array{imported}).front();
+            UNIT_ASSERT(copy[folded].Op == (fullMatch ? O::RegexMatch : O::RegexGrep));
+            TEvaluationContext context;
+            context.Column = [](auto id) {
+                UNIT_ASSERT_VALUES_EQUAL(id, 3);
+                return TValue{{K::String, true}, std::string{"abc"}};
+            };
+            context.Parameter = [](auto name) {
+                UNIT_ASSERT_VALUES_EQUAL(name, "pattern");
+                return TValue{{K::String}, std::string{"b"}};
+            };
+            context.Regex = [&](const TValue& value, std::string_view text, bool mode) {
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(value.Data), "abc");
+                UNIT_ASSERT_VALUES_EQUAL(text, "b");
+                UNIT_ASSERT_VALUES_EQUAL(mode, fullMatch);
+                return !fullMatch;
+            };
+            UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(copy, folded, context).Data), !fullMatch);
+        }
+    }
+
     Y_UNIT_TEST(ListIndexDistinguishesAbsentRowsFromPresentNullItems) {
         TExpressionArena arena;
         const auto present = arena.Literal({K::Int32, true}, std::int64_t{7});

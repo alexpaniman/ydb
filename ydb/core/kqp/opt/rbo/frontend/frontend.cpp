@@ -634,7 +634,11 @@ struct TBoundLambda {
     TSyntaxId Syntax;
     std::size_t Frame;
 };
-using TBindingValue = std::variant<TExprId, TBoundLambda, std::string>;
+struct TBoundRegex {
+    TExprId Pattern;
+    bool FullMatch;
+};
+using TBindingValue = std::variant<TExprId, TBoundLambda, std::string, TBoundRegex>;
 struct TBindingFrame {
     std::size_t Parent = NoBindingFrame;
     std::unordered_map<std::uint32_t, TBindingValue> Values;
@@ -758,6 +762,10 @@ public:
                     break;
                 }
                 case EStatementKind::Declaration: {
+                    if (statement.Name == "_") throw TFrontendError(statement.Position, "DECLARE requires a named parameter");
+                    // SQL keeps the first declaration of a parameter, even if
+                    // a later declaration spells a different type.
+                    if (Declared.contains(statement.Name)) break;
                     TParameterType type;
                     if (statement.RowFields) {
                         TParameterType::TRows fields;
@@ -768,7 +776,7 @@ public:
                     ValidateParameter(type, statement.Position);
                     auto [it, inserted] = Program.Parameters.emplace(statement.Name, type);
                     if (!inserted && it->second != type) throw TFrontendError(statement.Position, "parameter type does not match DECLARE: " + statement.Name);
-                    if (!Declared.insert(statement.Name).second) throw TFrontendError(statement.Position, "duplicate DECLARE: " + statement.Name);
+                    Declared.insert(statement.Name);
                     break;
                 }
                 case EStatementKind::Binding: {
@@ -2380,6 +2388,21 @@ private:
         if (syntax.Kind == ESyntaxKind::Invoke || (syntax.Kind == ESyntaxKind::Call && syntax.Text.starts_with('$')))
             return InvokeBinding(id, context);
         if (const auto name = CallableName(id)) return std::string(*name);
+        if (syntax.Kind == ESyntaxKind::Call) {
+            const auto name = Lower(syntax.Text);
+            if (name == "re2::match" || name == "re2::grep") {
+                if (syntax.Arguments.empty() || syntax.Arguments.size() > 2 || syntax.Distinct || syntax.Window)
+                    throw TFrontendError(syntax.Position, "regular expression matcher requires a pattern and optional options");
+                if (syntax.Arguments.size() == 2 && Program.Expressions[Expr(syntax.Arguments[1], context)].Type.Kind != ETypeKind::Null)
+                    throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native regular expression options currently require NULL");
+                auto pattern = Expr(syntax.Arguments[0], context);
+                const auto type = Program.Expressions[pattern].Type;
+                if (!type.IsString() || type.OptionalDepth)
+                    throw TFrontendError(syntax.Position, "regular expression pattern requires a non-null string");
+                pattern = Program.Expressions.Convert(pattern, {ETypeKind::String}, syntax.Position);
+                return TBoundRegex{pattern, name == "re2::match"};
+            }
+        }
         return Expr(id, context);
     }
 
@@ -2398,6 +2421,10 @@ private:
             std::vector<TExprId> scalars;
             for (const auto& argument : arguments) scalars.push_back(ScalarValue(argument, syntax.Position));
             return Program.Expressions.Call(*name, scalars, syntax.Position);
+        }
+        if (const auto* regex = std::get_if<TBoundRegex>(&callable)) {
+            if (arguments.size() != 1) throw TFrontendError(syntax.Position, "regular expression matcher requires one input");
+            return Program.Expressions.Regex(ScalarValue(arguments.front(), syntax.Position), regex->Pattern, regex->FullMatch, syntax.Position);
         }
         const auto* closure = std::get_if<TBoundLambda>(&callable);
         if (!closure) throw TFrontendError(syntax.Position, "invocation requires a callable value");

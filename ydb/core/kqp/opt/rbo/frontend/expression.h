@@ -30,8 +30,8 @@ public:
 };
 
 // Scalar optionality records its depth so explicit nested optional casts retain
-// the difference between Nothing and Just(Nothing). Internal tuples carry typed
-// aggregate states and fixed IN operands; lists are scalar IN operands.
+// the difference between Nothing and Just(Nothing). Tuples and lists carry
+// nested scalar values, aggregate states, IN operands and public results.
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
     Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval,
@@ -111,7 +111,7 @@ enum class EOpcode : std::uint8_t {
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
     ListFromRange, ListConcat, ListLength, ListHasItems, Minimum, Maximum,
     BitNot, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, IsNotDistinct,
-    BitCast, HasNull,
+    BitCast, HasNull, RegexMatch, RegexGrep,
 };
 
 struct TExprNode {
@@ -186,6 +186,9 @@ public:
     // Runtime LIKE matching. Input may be NULL (false); pattern is required.
     // SQL literal-pattern simplifications belong to the binding layer.
     TExprId Like(TExprId input, TExprId pattern, std::string escape = {}, TSourcePosition position = {}, bool caseSensitive = true);
+    // Default RE2 matching: NULL input is false; pattern is a required string.
+    // Pattern compilation belongs to execution, as with LIKE and JSON paths.
+    TExprId Regex(TExprId input, TExprId pattern, bool fullMatch, TSourcePosition position = {});
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
@@ -242,6 +245,7 @@ struct TEvaluationContext {
     std::function<std::string()> RandomUuid = {};
     std::function<std::uint64_t()> RandomNumber = {};
     std::function<bool(const TValue&, std::string_view, std::string_view, bool)> Like = {};
+    std::function<bool(const TValue&, std::string_view, bool)> Regex = {};
 };
 
 TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationContext& context = {});

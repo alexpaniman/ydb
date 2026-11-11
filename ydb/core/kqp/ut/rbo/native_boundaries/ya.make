@@ -20,6 +20,7 @@ PEERDIR(
     yql/essentials/minikql/invoke_builtins
     yql/essentials/public/udf/service/exception_policy
     yql/essentials/sql/pg_dummy
+    yql/essentials/udfs/common/re2
 )
 
 RESOURCE(

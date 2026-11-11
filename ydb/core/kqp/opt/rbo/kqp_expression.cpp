@@ -143,6 +143,8 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::RandomNumber: return "RandomNumber";
         case TNativeOp::Like: return "Like";
         case TNativeOp::ILike: return "ILike";
+        case TNativeOp::RegexMatch: return "RegexMatch";
+        case TNativeOp::RegexGrep: return "RegexGrep";
         case TNativeOp::TupleElement: return "TupleElement";
         case TNativeOp::ListElement: return "ListElement";
         case TNativeOp::ListFromRange: return "ListFromRange";

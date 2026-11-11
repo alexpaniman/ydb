@@ -99,7 +99,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
             auto* config = app.MutableTableServiceConfig();
             config->SetNativeFrontendMode(enable ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
                 : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
-            config->SetEnableNewRBO(true);
+            config->SetEnableNewRBO(enable);
             config->SetEnableNewRBOPhysicalStagePeephole(false);
             config->SetEnableFallbackToYqlOptimizer(false);
             config->SetEnableIndexStreamWrite(true);
@@ -131,7 +131,24 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
                 TString actual;
                 for (const auto& rows : result.GetResultSets()) { actual += FormatResultSetYson(rows); }
                 if (!enable) { baseline.push_back(actual); }
-                else { UNIT_ASSERT_VALUES_EQUAL_C(actual, baseline.at(index), sql); }
+                else if (index != 2) { UNIT_ASSERT_VALUES_EQUAL_C(actual, baseline.at(index), sql); }
+                if (index == 2) {
+                    // RETURNING * follows table declaration order in native;
+                    // the legacy optimizer sorts fields. Pin the same values
+                    // by field name, including REPLACE clearing omitted extra.
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto& set = result.GetResultSet(0);
+                    UNIT_ASSERT_VALUES_EQUAL(set.GetColumnsMeta().size(), 3);
+                    TResultSetParser row(set);
+                    UNIT_ASSERT(row.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(row.ColumnParser("id").GetUint64(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(*row.ColumnParser("value").GetOptionalString(), "replaced");
+                    UNIT_ASSERT(!row.ColumnParser("extra").GetOptionalInt32());
+                    UNIT_ASSERT(!row.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(set.GetColumnsMeta()[0].Name, enable ? "id" : "extra");
+                    UNIT_ASSERT_VALUES_EQUAL(set.GetColumnsMeta()[1].Name, enable ? "value" : "id");
+                    UNIT_ASSERT_VALUES_EQUAL(set.GetColumnsMeta()[2].Name, enable ? "extra" : "value");
+                }
                 if (index == 1) { UNIT_ASSERT_VALUES_EQUAL(actual, "[[1u;[\"changed\"];[10]]]"); }
                 if (index == 8) { UNIT_ASSERT_VALUES_EQUAL(actual, "[[1u;[\"replaced\"];[31]]]"); }
                 ++index;

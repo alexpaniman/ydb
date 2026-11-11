@@ -1768,6 +1768,17 @@ TExprId TExpressionArena::Like(TExprId input, TExprId pattern, std::string escap
     return Append({caseSensitive ? O::Like : O::ILike, {K::Bool}, position, {input, pattern}, {}, std::move(escape), 0});
 }
 
+TExprId TExpressionArena::Regex(TExprId input, TExprId pattern, bool fullMatch, TSourcePosition position) {
+    const auto inputType = (*this)[input].Type, patternType = (*this)[pattern].Type;
+    if ((!inputType.IsString() && inputType.Kind != K::Null) || inputType.OptionalDepth > 1)
+        Fail(position, "regular expression matching requires a string input");
+    if (!patternType.IsString() || patternType.OptionalDepth)
+        Fail(position, "regular expression matching requires a non-null string pattern");
+    input = Convert(input, {K::String, true}, position);
+    pattern = Convert(pattern, {K::String}, position);
+    return Append({fullMatch ? O::RegexMatch : O::RegexGrep, {K::Bool}, position, {input, pattern}, {}, {}, 0});
+}
+
 TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosition position) {
     if (!(*this)[input].Type.IsJson()) Fail(position, "JSON_VALUE expects Json or JsonDocument");
     if (!IsUtf8(path)) Fail(position, "JSON path must be valid UTF-8");
@@ -2103,6 +2114,8 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::JsonValue: return JsonValue(node.Arguments[0], std::move(node.Name), node.Position);
         case O::Like: case O::ILike:
             return Like(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position, node.Op == O::Like);
+        case O::RegexMatch: case O::RegexGrep:
+            return Regex(node.Arguments[0], node.Arguments[1], node.Op == O::RegexMatch, node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -2951,6 +2964,10 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             if (!context.Like) Fail(node.Position, "LIKE reference execution requires a pattern matching service");
             finish({node.Type, context.Like(*values[node.Arguments[0]],
                 std::get<std::string>(values[node.Arguments[1]]->Data), node.Name, node.Op == O::Like)});
+        } else if (node.Op == O::RegexMatch || node.Op == O::RegexGrep) {
+            if (!context.Regex) Fail(node.Position, "regular expression reference execution requires a matching service");
+            finish({node.Type, context.Regex(*values[node.Arguments[0]],
+                std::get<std::string>(values[node.Arguments[1]]->Data), node.Op == O::RegexMatch)});
         } else if (node.Op == O::RandomUuid) {
             if (!context.RandomUuid) Fail(node.Position, "Missing UUID generation service");
             finish({node.Type, context.RandomUuid()});
@@ -2995,7 +3012,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         // Path compilation and JSON evaluation belong to the execution runtime,
         // including invalid-path errors and NULL inputs. Never invoke it here.
         if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::RandomNumber ||
-            node.Op == O::Like || node.Op == O::ILike) return retain();
+            node.Op == O::Like || node.Op == O::ILike || node.Op == O::RegexMatch || node.Op == O::RegexGrep) return retain();
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];

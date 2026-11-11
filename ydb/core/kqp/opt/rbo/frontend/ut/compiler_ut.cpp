@@ -32,6 +32,50 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(RegexMatchersBindTheirConfigurationAndLexicalScope) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(
+                "$pattern = 'a.*'; $match = Re2::Match($pattern); $alias = $match; $pattern = 'b.*'; "
+                "$make = ($p) -> { RETURN Re2::Grep($p, NULL); }; "
+                "SELECT $alias('abc'), $make('bc')('abc'), Re2::Match('a')(NULL);", Catalog, settings);
+            const auto& arena = compiled.Program->Get().Expressions;
+            unsigned matches = 0, greps = 0;
+            for (const auto& node : arena.Nodes()) {
+                if (node.Op != EOpcode::RegexMatch && node.Op != EOpcode::RegexGrep) continue;
+                UNIT_ASSERT(node.Type == TType{ETypeKind::Bool});
+                const auto& pattern = arena[node.Arguments[1]];
+                UNIT_ASSERT(pattern.Type == TType{ETypeKind::String});
+                if (node.Op == EOpcode::RegexMatch) {
+                    ++matches;
+                    const auto& text = std::get<std::string>(pattern.Value);
+                    UNIT_ASSERT(text == "a.*" || text == "a");
+                } else ++greps;
+            }
+            UNIT_ASSERT(matches >= 2 && greps >= 1);
+            for (const auto* sql : {"SELECT Re2::Match(NULL)('x')", "SELECT Re2::Match(1)('x')",
+                    "SELECT Re2::Match('x')(1)", "SELECT Re2::Grep('x')()",
+                    "SELECT Re2::Match('x', 1)('x')", "SELECT Re2::Match()('x')"})
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
+        }
+    }
+
+    Y_UNIT_TEST(ParameterDeclarationsKeepTheirFirstType) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* second : {"Int64", "String"}) {
+                const auto sql = std::string{"DECLARE $x AS Int64; DECLARE $x AS "} + second + "; SELECT $x + 1;";
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT(*compiled.Program->Get().Parameters.at("x").Scalar() == TType{ETypeKind::Int64});
+            }
+            const auto list = CompileNative("DECLARE $p AS List<Int32>; DECLARE $p AS List<Int64>; SELECT ListLength($p)", Catalog, settings);
+            UNIT_ASSERT(list.Program->Get().Parameters.at("p").ScalarList()->Item == TType{ETypeKind::Int32});
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $_ AS Int64; SELECT 1", Catalog, settings), TFrontendError);
+            settings.Binding.ParameterTypes.emplace("x", TParameterType{TType{ETypeKind::String}});
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $x AS Int64; SELECT $x", Catalog, settings), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(ListRangesCastsAndConcatenationHaveNativeTypesAndValues) {
         const std::pair<std::string_view, std::string_view> cases[]{
             {"ListConcat(CAST(ListFromRange(1, 10) AS List<String>), '..')", "1..2..3..4..5..6..7..8..9"},
@@ -1141,7 +1185,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported, sql);
         }
         for (const auto* sql : {"SELECT FROM", "SELECT missing FROM a", "SELECT 1 + true",
-                "SELECT CASE WHEN true THEN 1 END", "DECLARE $x AS Int32; DECLARE $x AS Int32; SELECT $x"}) {
+                "SELECT CASE WHEN true THEN 1 END", "DECLARE $_ AS Int32; SELECT 1"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
         }
         settings.Parsing.MaxQueryBytes = 3;

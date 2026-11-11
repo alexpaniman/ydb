@@ -29,6 +29,8 @@ Global references resolve to declaration IDs, including aliases of named queries
 source and IN uses share that resolution. Table discovery follows those bindings
 before catalog I/O. Scalar typing and local column resolution consume the owning
 syntax, never revisit the CST or reparse individual pragmas.
+Repeated `DECLARE` statements retain the first parameter type; the anonymous
+`$_` spelling cannot declare a parameter. SDK-supplied types must match that first declaration.
 Pragma arguments are decoded once into typed syntax, retaining flag, assignment
 and list forms. Numbers, Booleans, names and bindings remain distinct from
 strings. The central pragma handler validates supported value kinds, warning
@@ -265,13 +267,18 @@ Checked arithmetic is constructed from native casts and Decimal(20,0)
 operations; emission needs no checked-operation macro or YQL peephole.
 `BITCAST` wraps Bool, integer and temporal payloads into required integral target
 types while preserving input optionality. Native tuple casts support required
-tuples with total field conversions; collection-valued public results remain
-outside the profile.
+tuples with total field conversions. Nested tuples and lists can cross result
+boundaries and carry aggregate payloads; shared collection shapes are interned.
 Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
 JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differential
 tests. Static direct, inline `Udf(String::...)`, and bound callable forms resolve
 to the same checked native string functions. Arbitrary UDF resolution is excluded.
+`Re2::Match(pattern)` and `Re2::Grep(pattern[, NULL])` bind configured native
+matchers, including aliases and lexical captures. Their Boolean operations
+retain input and pattern dependencies through copying and folding. NULL inputs
+return false; patterns compile only in the runtime after emission. Non-default
+RE2 option structs remain unsupported.
 
 Scalar lambdas support local bindings, higher-order arguments and returned
 closures. Name resolution assigns declaration identities before binding;

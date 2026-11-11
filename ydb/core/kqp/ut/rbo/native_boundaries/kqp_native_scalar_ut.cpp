@@ -5,6 +5,31 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(RegexMatchersExecuteWithoutSemanticPasses) {
+        using namespace NFrontend;
+        const std::pair<const char*, bool> cases[]{
+            {"SELECT Re2::Match('a.*')('abc')", true},
+            {"SELECT Re2::Match('b')('abc')", false},
+            {"SELECT Re2::Grep('b', NULL)('abc')", true},
+            {"SELECT Re2::Grep('z')('abc')", false},
+            {"SELECT Re2::Match('.*')(NULL)", false},
+            {"SELECT Re2::Grep('.*', NULL)(NULL)", false},
+            {"SELECT Re2::Match('')('')", true},
+            {"SELECT Re2::Match('.')('é')", false},
+            {"SELECT Re2::Match('é.')('éя')", true},
+            {"$p = 'a.*'; $m = Re2::Match($p); SELECT $m('abc')", true},
+        };
+        for (const auto& [sql, expected] : cases) {
+            const auto compiled = CompileNative(sql, [](auto, auto) -> TCatalogTable {
+                throw TFrontendError({}, "unexpected table");
+            });
+            const auto& program = compiled.Program->Get();
+            TEvaluationContext evaluation;
+            evaluation.Regex = [expected](const auto&, auto, auto) { return expected; };
+            CheckScalar(program.Expressions, NTests::Projection(program), sql, evaluation);
+        }
+    }
+
     Y_UNIT_TEST(StructuralNullChecksExecuteWithoutSemanticPasses) {
         using namespace NFrontend;
         for (const bool missing : {false, true}) {

@@ -435,7 +435,6 @@ private:
         const auto* voidType = Ctx.MakeType<TVoidExprType>();
         const auto* stringType = ExportNativeType({K::String}, Ctx);
         const auto* optionalString = ExportNativeType({K::String, true}, Ctx);
-        const auto* boolType = ExportNativeType({K::Bool}, Ctx);
         const auto udf = [&](TStringBuf name, const TCallableExprType* signature, TExprNode::TPtr config) {
             auto settings = Ctx.NewList(Pos, {}); AnnotateTypeSyntax(*settings, Ctx);
             return typed("Udf", {Atom(name), config, Type(voidType), Atom(""), Type(signature),
@@ -446,28 +445,46 @@ private:
         auto escapeValue = escape.empty() ? Nothing({K::String, true}) : Literal({K::String, true}, std::string(escape));
         auto regex = typed("Apply", {udf("Re2.PatternFromLike", converter, typed("Void", {}, voidType)), pattern, escapeValue}, stringType);
 
-        // Re2.Match's public run-config ABI. Supplying its standard SQL options
-        // keeps '_' Unicode-aware even when the pattern contains only ASCII.
+        return Regex(input, regex, true, caseSensitive);
+    }
+
+    TExprNode::TPtr Regex(TExprNode::TPtr input, TExprNode::TPtr pattern, bool fullMatch,
+        std::optional<bool> likeCaseSensitive = {}) {
+        const auto typed = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* type) {
+            auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(type); return result;
+        };
+        const auto* stringType = ExportNativeType({K::String}, Ctx);
+        const auto* optionalString = ExportNativeType({K::String, true}, Ctx);
+        const auto* boolType = ExportNativeType({K::Bool}, Ctx);
+        // RE2's default options infer encoding from the pattern. LIKE supplies
+        // explicit options to keep '_' Unicode-aware even for ASCII patterns.
         TVector<const TItemExprType*> fields;
         TExprNode::TListType values;
         for (const TStringBuf name : {"CaseSensitive", "DotNl", "Literal", "LogErrors", "LongestMatch", "MaxMem",
                 "NeverCapture", "NeverNl", "OneLine", "PerlClasses", "PosixSyntax", "Utf8", "WordBoundary"}) {
-            auto value = name == "MaxMem" ? Literal({K::Uint64}, std::uint64_t{8 << 20}) :
-                Literal({K::Bool}, (name == "CaseSensitive" && caseSensitive) || name == "LogErrors" || name == "Utf8");
-            fields.push_back(Ctx.MakeType<TItemExprType>(name, value->GetTypeAnn()));
-            auto field = Ctx.NewList(Pos, {Atom(name), value});
-            field->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
-                Ctx.MakeType<TUnitExprType>(), value->GetTypeAnn()}));
-            values.push_back(std::move(field));
+            const auto* fieldType = name == "MaxMem" ? ExportNativeType({K::Uint64}, Ctx) : boolType;
+            fields.push_back(Ctx.MakeType<TItemExprType>(name, fieldType));
+            if (likeCaseSensitive) {
+                auto value = name == "MaxMem" ? Literal({K::Uint64}, std::uint64_t{8 << 20}) :
+                    Literal({K::Bool}, (name == "CaseSensitive" && *likeCaseSensitive) || name == "LogErrors" || name == "Utf8");
+                auto field = Ctx.NewList(Pos, {Atom(name), value});
+                field->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
+                    Ctx.MakeType<TUnitExprType>(), fieldType}));
+                values.push_back(std::move(field));
+            }
         }
         const auto* optionsType = Ctx.MakeType<TStructExprType>(fields);
         const auto* optionalOptions = Ctx.MakeType<TOptionalExprType>(optionsType);
-        auto options = typed("Just", {typed("AsStruct", std::move(values), optionsType)}, optionalOptions);
-        auto config = Ctx.NewList(Pos, {regex, options});
+        auto options = likeCaseSensitive ? typed("Just", {typed("AsStruct", std::move(values), optionsType)}, optionalOptions)
+            : typed("Nothing", {Type(optionalOptions)}, optionalOptions);
+        auto config = Ctx.NewList(Pos, {pattern, options});
         config->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{stringType, optionalOptions}));
         const auto* signature = Ctx.MakeType<TCallableExprType>(boolType,
             TVector<TCallableExprType::TArgumentInfo>{{optionalString, {}, 0}}, 0, TStringBuf{});
-        return typed("Apply", {udf("Re2.Match", signature, config), input}, boolType);
+        auto settings = Ctx.NewList(Pos, {}); AnnotateTypeSyntax(*settings, Ctx);
+        auto udf = typed("Udf", {Atom(fullMatch ? "Re2.Match" : "Re2.Grep"), config,
+            Type(Ctx.MakeType<TVoidExprType>()), Atom(""), Type(signature), Type(config->GetTypeAnn()), Atom(""), settings}, signature);
+        return typed("Apply", {udf, input}, boolType);
     }
 
     TExprNode::TPtr JsonValue(TExprNode::TPtr value, NFrontend::TType inputType, std::string_view path) {
@@ -558,6 +575,7 @@ private:
                 return Call(uuid ? "RandomUuid" : "RandomNumber", std::move(args), type);
             }
             case O::Like: case O::ILike: return Like(args[0], args[1], node.Name, node.Op == O::Like);
+            case O::RegexMatch: case O::RegexGrep: return Regex(args[0], args[1], node.Op == O::RegexMatch);
             case O::ListElement: {
                 const auto item = Arena.ListItem(types[0]);
                 return Present(std::move(args), types, type, [&](TExprNode::TListType values) {
