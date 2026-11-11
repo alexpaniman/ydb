@@ -108,6 +108,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::And: return "And";
         case TNativeOp::Or: return "Or";
         case TNativeOp::IsNull: return "IsNull";
+        case TNativeOp::HasNull: return "HasNull";
         case TNativeOp::IsNotNull: return "Exists";
         case TNativeOp::Coalesce: return "Coalesce";
         case TNativeOp::If: return "If";

@@ -476,8 +476,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 catch (const TFrontendError&) { failed = true; }
                 UNIT_ASSERT_C(failed, sql);
             }
+            UNIT_ASSERT(!CompileNative("DECLARE $p AS List<Int32>; SELECT $p", Catalog, settings).UsesLegacy());
             for (const auto* sql : {
-                    "DECLARE $p AS List<Int32>; SELECT $p",
                     "DECLARE $p AS List<Struct<a:List<Int32>>>; SELECT * FROM AS_TABLE($p)",
                     "DECLARE $p AS List<Struct<a:Int32>>?; SELECT * FROM AS_TABLE($p)",
                     "DECLARE $p AS List<Struct<a:Int32>>; SELECT $p",

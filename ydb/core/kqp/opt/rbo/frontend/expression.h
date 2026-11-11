@@ -111,7 +111,7 @@ enum class EOpcode : std::uint8_t {
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
     ListFromRange, ListConcat, ListLength, ListHasItems, Minimum, Maximum,
     BitNot, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, IsNotDistinct,
-    BitCast,
+    BitCast, HasNull,
 };
 
 struct TExprNode {
@@ -139,8 +139,8 @@ struct TExprNode {
 // A query may share this append-only arena, with mutation externally serialized.
 class TExpressionArena {
 public:
-    // Flat tuples contain scalar fields, sufficient for aggregate states.
-    // Construction validates and interns each shape once; scalar types need no lookup.
+    // Collection shapes form a bounded DAG of interned types. Scalar types
+    // need no arena lookup; shared nested shapes are stored only once.
     TType TupleType(std::span<const TType> items, TSourcePosition position = {});
     std::span<const TType> TupleItems(TType type) const;
     TType ListType(TType item, TSourcePosition position = {});
@@ -148,6 +148,7 @@ public:
     TType ParseTypeName(std::string_view name, TSourcePosition position = {});
     TType ImportType(const TExpressionArena& source, TType type);
     void ValidateType(TType type, TSourcePosition position = {}) const;
+    bool CanContainNull(TType type) const;
 
     TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
     TExprId TupleElement(TExprId tuple, std::uint32_t index, TSourcePosition position = {});
@@ -217,10 +218,13 @@ public:
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:
+    TType ParseTypeName(std::string_view name, TSourcePosition position, unsigned depth);
     TExprId Append(TExprNode node);
     TExprId Rebuild(TExprNode node);
     std::vector<TExprNode> Nodes_;
     std::vector<std::vector<TType>> TupleTypes_;
+    struct TShapeProperties { std::uint8_t Depth; bool NullableItems; };
+    std::vector<TShapeProperties> TupleProperties_;
     std::unordered_multimap<std::size_t, std::uint32_t> TupleHashes_;
 };
 

@@ -5,6 +5,58 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(StructuralNullChecksExecuteWithoutSemanticPasses) {
+        using namespace NFrontend;
+        for (const bool missing : {false, true}) {
+            TExpressionArena arena;
+            const auto item = arena.Literal({ETypeKind::Int32, true}, missing ? TScalar{} : TScalar{std::int64_t{17}});
+            const auto list = arena.Collection(std::array{item, item}, true);
+            const auto tuple = arena.Collection(std::array{list, item}, false);
+            const auto present = arena.Unary(EOpcode::OptionalWrap, tuple);
+            const auto absent = arena.Literal(arena[tuple].Type.Optional(), {});
+            for (const auto input : {item, list, tuple, present, absent}) {
+                const auto root = arena.Unary(EOpcode::HasNull, input);
+                CheckScalar(arena, root, "structural NULL check");
+                CheckScalar(arena, arena.FoldConstants(std::array{root}).front(), "folded structural NULL check");
+            }
+        }
+        for (const auto* sql : {
+            "SELECT ((1, NULL), 2) IN (((1, 'a'), 2), ((2, NULL), 3))",
+            "SELECT (1, 'a') IN ((1, 'a'), (2, NULL))",
+            "SELECT (1, 'a') NOT IN ((2, NULL), (3, 'b'))",
+            "PRAGMA AnsiInForEmptyOrNullableItemsCollections; SELECT (1, NULL) IN ((1, 'a'), (2, NULL))"})
+            CheckScalar(sql);
+    }
+
+    Y_UNIT_TEST(NestedCollectionTypesAndValuesSurviveArenaAndEmissionBoundaries) {
+        using namespace NFrontend;
+        TExpressionArena source;
+        const auto integer = source.Literal({ETypeKind::Int32}, std::int64_t{17});
+        const auto list = source.Collection(std::array{integer, integer}, true);
+        const auto tuple = source.Collection(std::array{integer, list}, false);
+        const auto root = source.Collection(std::array{tuple, list}, false);
+        const auto type = source[root].Type;
+        UNIT_ASSERT(type == source.ParseTypeName("Tuple<Tuple<Int32,List<Int32>>,List<Int32>>"));
+        CheckScalar(source, root, "nested tuple/list construction");
+        const auto folded = source.FoldConstants(std::array{root}).front();
+        CheckScalar(source, folded, "nested tuple/list literal");
+        TExpressionArena target;
+        target.ParseTypeName("Tuple<String,Double>"); // Force different shape IDs.
+        const auto imported = target.Import(source, folded, [](auto, auto, auto) -> TExprId {
+            ythrow yexception() << "literal import must not bind columns";
+        });
+        CheckScalar(target, imported, "nested literal shape remapping");
+        NYql::TExprContext ctx;
+        const auto* emitted = ExportNativeType(type, ctx, &source);
+        UNIT_ASSERT(target[imported].Type == ImportNativeType(*emitted, &target));
+        auto shared = source.ParseTypeName("Tuple<Int32>");
+        for (unsigned i = 0; i < 24; ++i) shared = source.TupleType(std::array{shared, shared});
+        UNIT_ASSERT(ExportNativeType(shared, ctx, &source));
+        auto nested = source.TupleType({});
+        for (unsigned i = 1; i < 64; ++i) nested = source.ListType(nested);
+        UNIT_ASSERT_EXCEPTION(source.ListType(nested), TResourceLimitError);
+    }
+
     Y_UNIT_TEST(ListIndexesUseCheckedScalarConversion) {
         using namespace NFrontend;
         using K = ETypeKind;

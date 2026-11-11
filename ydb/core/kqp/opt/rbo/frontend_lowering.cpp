@@ -175,6 +175,35 @@ private:
         return target.OptionalDepth && value->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Optional ?
             Call("Just", {value}, target) : value;
     }
+    TExprNode::TPtr HasNull(const TExprNode::TPtr& value, NFrontend::TType type) {
+        if (type.Kind == K::Null) return Literal({K::Bool}, true);
+        if (!Arena.CanContainNull(type)) return Literal({K::Bool}, false);
+        const auto lambda = [&](const TExprNode::TPtr& argument, TExprNode::TPtr body) {
+            auto arguments = Ctx.NewArguments(Pos, {argument});
+            arguments->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
+            auto result = Ctx.NewLambda(Pos, std::move(arguments), std::move(body));
+            result->SetTypeAnn(ExportNativeType({K::Bool}, Ctx));
+            return result;
+        };
+        if (type.OptionalDepth) {
+            auto item = Ctx.NewArgument(Pos, "present_item");
+            item->SetTypeAnn(ExportNativeType(type.Unwrapped(), Ctx, &Arena));
+            return Call("IfPresent", {value, lambda(item, HasNull(item, type.Unwrapped())), Literal({K::Bool}, true)}, {K::Bool});
+        }
+        if (type.Kind == K::Tuple) {
+            TExprNode::TListType items;
+            const auto fields = Arena.TupleItems(type);
+            for (std::size_t i = 0; i < fields.size(); ++i) if (Arena.CanContainNull(fields[i]))
+                items.push_back(HasNull(Call("Nth", {value, Atom(ToString(i))}, fields[i]), fields[i]));
+            return Call("Or", std::move(items), {K::Bool});
+        }
+        Y_ENSURE(type.Kind == K::List, "Nullable collection expected");
+        const auto itemType = Arena.ListItem(type);
+        auto item = Ctx.NewArgument(Pos, "list_item");
+        item->SetTypeAnn(ExportNativeType(itemType, Ctx, &Arena));
+        auto tail = Call("SkipWhile", {value, lambda(item, Call("Not", {HasNull(item, itemType)}, {K::Bool}))}, type);
+        return Call("HasItems", {tail}, {K::Bool});
+    }
     TExprNode::TPtr Present(TExprNode::TListType values, const std::vector<NFrontend::TType>& types,
         NFrontend::TType resultType, const std::function<TExprNode::TPtr(TExprNode::TListType)>& build) {
         TExprNode::TListType optionals, arguments;
@@ -600,6 +629,11 @@ private:
                 auto exists = Call("Exists", std::move(args), {K::Bool});
                 return node.Op == O::IsNull ? Call("Not", {exists}, {K::Bool}) : exists;
             }
+            case O::HasNull:
+                // Evaluate the complete operand once, even when its type or an
+                // early NULL determines the answer. Checked/volatile members
+                // remain observable, matching native scalar evaluation.
+                return Call("Seq", {args[0], HasNull(args[0], types[0])}, {K::Bool});
             case O::If: {
                 if (Arena[node.Arguments[0]].Type.OptionalDepth) args[0] = Call("Coalesce", {args[0], Literal({K::Bool}, false)}, {K::Bool});
                 return Call("If", std::move(args), type);
@@ -663,17 +697,29 @@ NYql::TExprNode::TPtr LowerExecutionType(const NYql::TTypeAnnotationNode* type,
 
 const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
     const NFrontend::TExpressionArena* arena) {
+    if (type.IsCollection()) {
+        Y_ENSURE(arena, "Collection export requires its native arena");
+        std::unordered_map<ui64, const TTypeAnnotationNode*> shapes;
+        const auto emit = [&](auto&& self, NFrontend::TType item) -> const TTypeAnnotationNode* {
+            if (!item.IsCollection()) return ExportNativeType(item, ctx, arena);
+            const ui64 key = (ui64{item.Shape} << 16) | (ui64{item.OptionalDepth} << 8) | static_cast<unsigned>(item.Kind);
+            if (const auto it = shapes.find(key); it != shapes.end()) return it->second;
+            const TTypeAnnotationNode* result;
+            if (item.Kind == K::List) result = ctx.MakeType<TListExprType>(self(self, arena->ListItem(item)));
+            else {
+                TVector<const TTypeAnnotationNode*> fields;
+                for (const auto field : arena->TupleItems(item)) fields.push_back(self(self, field));
+                result = ctx.MakeType<TTupleExprType>(fields);
+            }
+            for (unsigned depth = 0; depth < item.OptionalDepth; ++depth) result = ctx.MakeType<TOptionalExprType>(result);
+            shapes.emplace(key, result);
+            return result;
+        };
+        return emit(emit, type);
+    }
     const TTypeAnnotationNode* result;
     if (type.Kind == K::Null) return ctx.MakeType<TNullExprType>();
-    if (type.Kind == K::List) {
-        Y_ENSURE(arena, "List export requires its native arena");
-        result = ctx.MakeType<TListExprType>(ExportNativeType(arena->ListItem(type), ctx, arena));
-    } else if (type.Kind == K::Tuple) {
-        Y_ENSURE(arena, "Tuple export requires its native arena");
-        TVector<const TTypeAnnotationNode*> items;
-        for (const auto item : arena->TupleItems(type)) items.push_back(ExportNativeType(item, ctx));
-        result = ctx.MakeType<TTupleExprType>(items);
-    } else if (type.Kind == K::Decimal)
+    if (type.Kind == K::Decimal)
         result = ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, ToString(type.Precision), ToString(type.Scale));
     else if (type.Kind == K::Calendar) result = ctx.MakeType<TResourceExprType>("DateTime2.TM");
     else {
@@ -717,8 +763,6 @@ NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFronte
         Y_ENSURE(arena, "Tuple import requires a native arena");
         std::vector<NFrontend::TType> items;
         for (const auto* item : type.Cast<TTupleExprType>()->GetItems()) {
-            if (RemoveOptionality(*item).GetKind() == ETypeAnnotationKind::Tuple)
-                throw NFrontend::TFrontendError({}, "nested tuple states are not supported");
             items.push_back(ImportNativeType(*item, arena));
         }
         return arena->TupleType(items);

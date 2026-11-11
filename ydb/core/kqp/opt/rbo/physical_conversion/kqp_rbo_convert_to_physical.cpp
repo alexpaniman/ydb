@@ -18,6 +18,7 @@
 #include <ydb/core/kqp/provider/yql_kikimr_provider.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
+#include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/core/yql_graph_transformer.h>
 #include <yql/essentials/core/yql_opt_utils.h>
 #include <yql/essentials/utils/log/log.h>
@@ -303,9 +304,21 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
 
                 // Native emission constructs the live output layout directly.
                 const bool pruneUnusedOutputs = true;
+                bool useBlocks = rboCtx.KqpCtx.Config->GetDqHashOperatorsUseBlocks();
+                const auto checkBlockType = [&](const IOperator& producer, TInfoUnitId iu) {
+                    if (useBlocks) useBlocks = IsSupportedAsBlockType(op->Pos, *ExportIUType(producer, iu, ctx), ctx, rboCtx.TypeCtx);
+                };
+                // Collection payloads remain ordinary aggregate states. The
+                // selected operator uses rows when Arrow cannot represent its
+                // input/state/result types (also checked by PR #58587).
+                for (const auto iu : aggregate.GetKeyColumns().Items()) checkBlockType(*aggregate.GetInput(), iu);
+                for (const auto& [output, traits] : aggregate.GetAggregationTraits().Items()) {
+                    checkBlockType(*aggregate.GetInput(), traits.Input);
+                    checkBlockType(aggregate, output);
+                }
                 currentStageBody = NPhysicalConvertionUtils::TransformStageOutput(currentStageBody, [&](TExprNode::TPtr body) {
                     return TPhysicalAggregationBuilder(aggregate, ctx, op->Pos, names, pruneUnusedOutputs,
-                        rboCtx.KqpCtx.Config->GetDqHashOperatorsUseBlocks()).BuildPhysicalOp(body, memLimit);
+                        useBlocks).BuildPhysicalOp(body, memLimit);
                 }, GetReplicateOutputIndex(aggregate), ctx);
 
                 stages[opStageId] = currentStageBody;

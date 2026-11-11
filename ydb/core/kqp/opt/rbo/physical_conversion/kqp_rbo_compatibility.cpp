@@ -84,6 +84,51 @@ bool IsTupleMinMax(const TExprNode::TPtr& node) {
     return RemoveAllOptionals(node->GetTypeAnn())->GetKind() == ETypeAnnotationKind::Tuple;
 }
 
+// Aggregate order is total (NULL sorts first), unlike SQL's three-valued
+// comparisons. Lower collection state comparisons to terminal operations here,
+// after emission; the optimizer still sees its ordinary MIN/MAX tuple state.
+TExprNode::TPtr BuildAggregateComparison(const TExprNode::TPtr& left, const TExprNode::TPtr& right,
+    const TTypeAnnotationNode* type, TStringBuf compare, TExprContext& ctx) {
+    const auto pos = left->Pos();
+    const bool equal = compare == "AggrEquals";
+    if (type->GetKind() == ETypeAnnotationKind::Null) return MakeBool(pos, equal, ctx);
+    if (IsSqlScalar(type)) return ctx.NewCallable(pos, compare, {left, right});
+    if (type->GetKind() == ETypeAnnotationKind::Optional) {
+        const auto* itemType = type->Cast<TOptionalExprType>()->GetItemType();
+        auto a = ctx.NewArgument(pos, "left_item"), b = ctx.NewArgument(pos, "right_item");
+        auto body = BuildAggregateComparison(a, b, itemType, compare, ctx);
+        auto rightPresent = ctx.NewCallable(pos, "IfPresent", {right,
+            ctx.NewLambda(pos, ctx.NewArguments(pos, {b}), std::move(body)), MakeBool(pos, compare == "AggrGreater", ctx)});
+        auto missing = compare == "AggrGreater" ? MakeBool(pos, false, ctx) : ctx.NewCallable(pos, "Exists", {right});
+        if (equal) missing = ctx.NewCallable(pos, "Not", {missing});
+        return ctx.NewCallable(pos, "IfPresent", {left,
+            ctx.NewLambda(pos, ctx.NewArguments(pos, {a}), std::move(rightPresent)), missing});
+    }
+    if (type->GetKind() == ETypeAnnotationKind::Tuple) {
+        auto result = MakeBool(pos, equal, ctx);
+        const auto fields = type->Cast<TTupleExprType>()->GetItems();
+        for (size_t i = fields.size(); i-- > 0;) {
+            auto a = TupleItem(left, i, ctx), b = TupleItem(right, i, ctx);
+            auto same = BuildAggregateComparison(a, b, fields[i], "AggrEquals", ctx);
+            result = equal ? ctx.NewCallable(pos, "And", {same, result}) : ctx.NewCallable(pos, "If", {
+                same, result, BuildAggregateComparison(a, b, fields[i], compare, ctx)});
+        }
+        return result;
+    }
+    Y_ENSURE(type->GetKind() == ETypeAnnotationKind::List, "Unsupported aggregate comparison type");
+    const auto* itemType = type->Cast<TListExprType>()->GetItemType();
+    auto pair = ctx.NewArgument(pos, "pair");
+    auto same = BuildAggregateComparison(TupleItem(pair, 0, ctx), TupleItem(pair, 1, ctx), itemType, "AggrEquals", ctx);
+    auto tail = ctx.NewCallable(pos, "SkipWhile", {ctx.NewCallable(pos, "Zip", {left, right}),
+        ctx.NewLambda(pos, ctx.NewArguments(pos, {pair}), std::move(same))});
+    auto first = ctx.NewCallable(pos, "Head", {tail});
+    auto lengths = ctx.NewCallable(pos, compare, {ctx.NewCallable(pos, "Length", {left}), ctx.NewCallable(pos, "Length", {right})});
+    if (equal) return ctx.NewCallable(pos, "And", {lengths, ctx.NewCallable(pos, "Not", {ctx.NewCallable(pos, "Exists", {first})})});
+    auto different = ctx.NewArgument(pos, "different_pair");
+    auto order = BuildAggregateComparison(TupleItem(different, 0, ctx), TupleItem(different, 1, ctx), itemType, compare, ctx);
+    return ctx.NewCallable(pos, "IfPresent", {first, ctx.NewLambda(pos, ctx.NewArguments(pos, {different}), std::move(order)), lengths});
+}
+
 TExprNode::TPtr ExpandTupleMinMax(const TExprNode::TPtr& node, TExprContext& ctx) {
     const auto pos = node->Pos();
     const TTypeAnnotationNode* type = node->GetTypeAnn();
@@ -94,11 +139,10 @@ TExprNode::TPtr ExpandTupleMinMax(const TExprNode::TPtr& node, TExprContext& ctx
         const auto fields = tupleType->GetItems();
         const TStringBuf compare = node->IsCallable("AggrMin") ? "AggrLess" : "AggrGreater";
         for (size_t i = fields.size(); i-- > 0;) {
-            Y_ENSURE(IsSqlScalar(fields[i]), "Aggregate tuple fields must be scalar");
             if (fields[i]->GetKind() == ETypeAnnotationKind::Null) continue;
             auto a = TupleItem(left, i, ctx), b = TupleItem(right, i, ctx);
-            preferred = ctx.NewCallable(pos, "If", {ctx.NewCallable(pos, "AggrEquals", {a, b}),
-                preferred, ctx.NewCallable(pos, compare, {a, b})});
+            preferred = ctx.NewCallable(pos, "If", {BuildAggregateComparison(a, b, fields[i], "AggrEquals", ctx),
+                preferred, BuildAggregateComparison(a, b, fields[i], compare, ctx)});
         }
         return ctx.NewCallable(pos, "If", {preferred, left, right});
     };

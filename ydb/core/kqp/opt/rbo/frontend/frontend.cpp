@@ -1849,8 +1849,8 @@ private:
             if (arena[key].Type.Kind == ETypeKind::Null) key = arena.Convert(key, {ETypeKind::Int8, true}, syntax.Position);
             const auto keyType = arena[key].Type;
             if (keyType.IsCollection() || keyType.IsJson() || keyType.Kind == ETypeKind::Calendar || keyType.OptionalDepth > 1 ||
-                payloadType.IsCollection() || payloadType.IsJson() || payloadType.Kind == ETypeKind::Calendar || payloadType.OptionalDepth > 1)
-                throw TUnsupportedFeature(EFeature::Type, syntax.Position, "MIN_BY/MAX_BY requires comparable scalar value and key types");
+                payloadType.IsJson() || payloadType.Kind == ETypeKind::Calendar || payloadType.OptionalDepth > 1)
+                throw TUnsupportedFeature(EFeature::Type, syntax.Position, "MIN_BY/MAX_BY requires a comparable value and scalar key");
             auto requiredKey = key;
             if (keyType.OptionalDepth) requiredKey = arena.Call("Unwrap", std::span(&key, 1), syntax.Position);
             const TExprId items[]{requiredKey, input};
@@ -2063,8 +2063,8 @@ private:
             const TExprId args[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
             result = arena.Coalesce(args, pos);
         }
-        if (arena[lookup].Type.OptionalDepth || arena[lookup].Type.Kind == ETypeKind::Null) {
-            const auto missing = arena.Unary(EOpcode::IsNull, lookup, pos);
+        if (arena.CanContainNull(arena[lookup].Type)) {
+            const auto missing = arena.Unary(arena[lookup].Type.IsCollection() ? EOpcode::HasNull : EOpcode::IsNull, lookup, pos);
             result = arena.If(missing, arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
         }
         return result;
@@ -2501,12 +2501,6 @@ void CheckSyntax(const TParsedQuery& syntax) {
 }
 
 void CheckProgram(const TBoundProgram& program) {
-    // Flat tuples are internal aggregate states. Lists remain scalar operands,
-    // and neither collection kind is a supported public result column yet.
-    for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::List)
-        throw TUnsupportedFeature(EFeature::Type, {}, "list-valued relational columns are outside the native profile");
-    for (const auto& result : program.Results) for (const auto& column : result.Columns) if (column.Type.IsCollection())
-        throw TUnsupportedFeature(EFeature::Type, {}, "collection-valued result columns are outside the native profile");
     for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::Calendar)
         throw TUnsupportedFeature(EFeature::Type, {}, "native calendar values must remain inside scalar expressions; use DateTime::MakeDate/MakeDatetime/MakeTimestamp before a relational boundary");
     for (const auto& node : program.Expressions.Nodes()) {

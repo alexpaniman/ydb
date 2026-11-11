@@ -1093,15 +1093,19 @@ void TExpressionArena::ValidateType(TType type, TSourcePosition position) const 
 
 TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition position) {
     std::size_t hash = items.size();
+    unsigned depth = 1;
+    bool nullable = false;
     for (const auto item : items) {
         ValidateType(item, position);
         if (item.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON tuple states are outside the native scalar profile");
         if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
-        if (item.IsCollection()) Fail(position, "Nested collections are not supported");
+        if (item.IsCollection()) depth = std::max(depth, 1u + TupleProperties_[item.Shape - 1].Depth);
+        nullable |= CanContainNull(item);
         const std::uint64_t bits = static_cast<unsigned>(item.Kind) | (std::uint64_t{item.OptionalDepth} << 8) |
             (std::uint64_t{item.Precision} << 16) | (std::uint64_t{item.Scale} << 24) | (std::uint64_t{item.Shape} << 32);
         hash ^= std::hash<std::uint64_t>{}(bits) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
     }
+    if (depth > 64) throw TResourceLimitError(position, "Collection type nesting exceeds 64");
     const auto [begin, end] = TupleHashes_.equal_range(hash);
     for (auto it = begin; it != end; ++it) {
         const auto& existing = TupleTypes_[it->second - 1];
@@ -1111,6 +1115,7 @@ TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition 
         throw TResourceLimitError(position, "Too many native tuple shapes");
     const auto id = static_cast<std::uint32_t>(TupleTypes_.size() + 1);
     TupleTypes_.emplace_back(items.begin(), items.end());
+    TupleProperties_.push_back({static_cast<std::uint8_t>(depth), nullable});
     TupleHashes_.emplace(hash, id);
     return {K::Tuple, false, 0, 0, id};
 }
@@ -1119,6 +1124,12 @@ std::span<const TType> TExpressionArena::TupleItems(TType type) const {
     ValidateType(type);
     if (type.Kind != K::Tuple) Fail({}, "Expected a tuple type");
     return TupleTypes_[type.Shape - 1];
+}
+
+bool TExpressionArena::CanContainNull(TType type) const {
+    ValidateType(type);
+    return type.OptionalDepth || type.Kind == K::Null ||
+        (type.IsCollection() && TupleProperties_[type.Shape - 1].NullableItems);
 }
 
 TType TExpressionArena::ListType(TType item, TSourcePosition position) {
@@ -1134,6 +1145,11 @@ TType TExpressionArena::ListItem(TType type) const {
 }
 
 TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition position) {
+    return ParseTypeName(name, position, 0);
+}
+
+TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition position, unsigned depth) {
+    if (depth > 64) throw TResourceLimitError(position, "Collection type nesting exceeds 64");
     const auto original = name;
     std::uint8_t optional = 0;
     while (!name.empty() && name.back() == '?') {
@@ -1142,7 +1158,7 @@ TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition pos
         name.remove_suffix(1);
     }
     if (name.size() > 6 && EqualAsciiCase(name.substr(0, 5), "List<") && name.back() == '>') {
-        auto type = ListType(ParseType(name.substr(5, name.size() - 6), position), position);
+        auto type = ListType(ParseTypeName(name.substr(5, name.size() - 6), position, depth + 1), position);
         type.OptionalDepth = optional;
         return type;
     }
@@ -1152,18 +1168,18 @@ TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition pos
         std::size_t begin = 0;
         unsigned parameters = 0;
         for (std::size_t i = 0; i < fields.size(); ++i) {
-            if (fields[i] == '(') ++parameters;
-            if (fields[i] == ')') {
+            if (fields[i] == '(' || fields[i] == '<') ++parameters;
+            if (fields[i] == ')' || fields[i] == '>') {
                 if (!parameters) Fail(position, "Unmatched tuple field type parentheses");
                 --parameters;
             }
             if (fields[i] == ',' && !parameters) {
-                items.push_back(ParseType(fields.substr(begin, i - begin), position));
+                items.push_back(ParseTypeName(fields.substr(begin, i - begin), position, depth + 1));
                 begin = i + 1;
             }
         }
         if (parameters) Fail(position, "Unclosed tuple field type parameters");
-        if (!fields.empty()) items.push_back(ParseType(fields.substr(begin), position));
+        if (!fields.empty()) items.push_back(ParseTypeName(fields.substr(begin), position, depth + 1));
         auto type = TupleType(items, position);
         type.OptionalDepth = optional;
         return type;
@@ -1257,12 +1273,27 @@ TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool 
 TType TExpressionArena::ImportType(const TExpressionArena& source, TType type) {
     source.ValidateType(type);
     if (&source == this || !type.IsCollection()) return type;
-    if (type.Kind == K::List) {
-        auto result = ListType(source.ListItem(type)); result.OptionalDepth = type.OptionalDepth; return result;
+    if (source.TupleProperties_[type.Shape - 1].Depth == 1) {
+        type.Shape = TupleType(source.TupleTypes_[type.Shape - 1]).Shape;
+        return type;
     }
-    auto result = TupleType(source.TupleItems(type));
-    result.OptionalDepth = type.OptionalDepth;
-    return result;
+    // Shapes are arena-local DAG nodes. Memoize shared shapes so importing a
+    // nested type takes time proportional to its distinct shapes, not its tree.
+    std::unordered_map<std::uint32_t, std::uint32_t> shapes;
+    const auto copy = [&](auto&& self, TType item) -> TType {
+        if (!item.IsCollection()) return item;
+        if (const auto it = shapes.find(item.Shape); it != shapes.end()) {
+            item.Shape = it->second;
+            return item;
+        }
+        std::vector<TType> fields;
+        for (const auto field : source.TupleTypes_[item.Shape - 1]) fields.push_back(self(self, field));
+        const auto shape = TupleType(fields).Shape;
+        shapes.emplace(item.Shape, shape);
+        item.Shape = shape;
+        return item;
+    };
+    return copy(copy, type);
 }
 
 const TExprNode& TExpressionArena::operator[](TExprId id) const {
@@ -1439,7 +1470,7 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         ++type.OptionalDepth;
         return Append({op, type, position, {input}, {}, {}, 0});
     }
-    if (type.OptionalDepth > 1 && op != O::Unwrap && op != O::IsNull && op != O::IsNotNull)
+    if (type.OptionalDepth > 1 && op != O::Unwrap && op != O::IsNull && op != O::IsNotNull && op != O::HasNull)
         throw TUnsupportedFeature(EFeature::Type, position, "Nested optional scalar operation requires explicit Unwrap");
     if (op == O::Unwrap) {
         if (type.Kind == K::Null) Fail(position, "Unwrap requires a typed value");
@@ -1465,7 +1496,7 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (type.IsCollection()) Fail(position, "Collection serialization is not supported");
         if (type.Kind == K::Calendar) throw TUnsupportedFeature(EFeature::Type, position, "calendar values cannot be persisted");
         type = {K::String};
-    } else if (op == O::IsNull || op == O::IsNotNull) {
+    } else if (op == O::IsNull || op == O::IsNotNull || op == O::HasNull) {
         type = {K::Bool};
     } else if (op == O::Not) {
         if (type.Kind != K::Bool && type.Kind != K::Null) {
@@ -2097,8 +2128,23 @@ TExprId TExpressionArena::Import(const TExpressionArena& source, TExprId root,
         for (auto& arg : node.Arguments) {
             arg = copied.at(arg);
         }
-        // Tuple fields are scalar, so their value types are arena-independent.
         node.Type = ImportType(source, node.Type);
+        if (&source != this && node.Op == O::Literal && node.Type.IsCollection()) {
+            const auto copyValue = [&](auto&& self, TScalar data, TType type) -> TScalar {
+                if (const auto* optional = std::get_if<TOptionalValue>(&data); optional && *optional)
+                    return std::make_shared<const TValue>(TValue{type.Unwrapped(), self(self, (*optional)->Data, type.Unwrapped())});
+                if (const auto* collection = std::get_if<TTuple>(&data); collection && *collection) {
+                    auto items = (*collection)->Items;
+                    for (std::size_t i = 0; i < items.size(); ++i) {
+                        items[i].Type = type.Kind == K::List ? ListItem(type) : TupleItems(type)[i];
+                        items[i].Data = self(self, std::move(items[i].Data), items[i].Type);
+                    }
+                    return std::make_shared<const TTupleValue>(TTupleValue{std::move(items)});
+                }
+                return data;
+            };
+            node.Value = copyValue(copyValue, std::move(node.Value), node.Type);
+        }
         const auto result = node.Op == O::Column ? bindColumn(node.ColumnId, node.Type, node.Position) : Rebuild(std::move(node));
         (void)(*this)[result];
         copied.emplace(id, result);
@@ -2512,6 +2558,17 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
     if (node.Op == O::IsNull || node.Op == O::IsNotNull) {
         return {node.Type, argument(0).IsNull() == (node.Op == O::IsNull)};
     }
+    if (node.Op == O::HasNull) {
+        const auto hasNull = [&](auto&& self, const TValue& value) -> bool {
+            if (value.IsNull()) return true;
+            if (const auto* optional = std::get_if<TOptionalValue>(&value.Data)) return self(self, **optional);
+            if (const auto* collection = std::get_if<TTuple>(&value.Data)) {
+                for (const auto& item : (*collection)->Items) if (self(self, item)) return true;
+            }
+            return false;
+        };
+        return {node.Type, hasNull(hasNull, argument(0))};
+    }
     if (node.Op == O::StablePickle) {
         return {node.Type, StablePickle(argument(0))};
     }
@@ -2916,7 +2973,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             case O::Negate: case O::Not: case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo:
             case O::Equal: case O::NotEqual: case O::Less: case O::LessEqual: case O::Greater: case O::GreaterEqual:
             case O::And: case O::Or: case O::If: case O::Coalesce: case O::OptionalWrap:
-            case O::IsNull: case O::IsNotNull: case O::IsNotDistinct:
+            case O::IsNull: case O::IsNotNull: case O::IsNotDistinct: case O::HasNull:
                 return true;
             default: return false;
         }

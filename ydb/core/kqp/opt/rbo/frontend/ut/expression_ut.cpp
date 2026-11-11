@@ -48,7 +48,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT(fields[0] == TType{K::Int64});
         UNIT_ASSERT(fields[1] == (TType{K::Decimal, false, 12, 2}));
         UNIT_ASSERT(fields[2] == (TType{K::String, true}));
-        for (const auto* invalid : {"Tuple<Int64,>", "Tuple<Decimal(12,2>", "Tuple<Int64),String>", "Tuple<List<Int64>>"})
+        for (const auto* invalid : {"Tuple<Int64,>", "Tuple<Decimal(12,2>", "Tuple<Int64),String>", "Tuple<List<Int64>"})
             UNIT_ASSERT_EXCEPTION(arena.ParseTypeName(invalid), TFrontendError);
         const TExprId items[]{arena.Literal({K::String}, std::string{"bad"})};
         const TType required[]{TType{K::Int32}};
@@ -927,7 +927,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         }
     }
 
-    Y_UNIT_TEST(TupleStatesAreInternedAndHaveValidatedScalarFields) {
+    Y_UNIT_TEST(TupleStatesAreInternedAndHaveValidatedFields) {
         Cerr << "native layout: type=" << sizeof(TType) << ", node=" << sizeof(TExprNode) << ", value=" << sizeof(TValue) << Endl;
         TExpressionArena arena;
         const TType fields[]{{K::Decimal, false, 35, 2}, {K::Uint64}};
@@ -944,7 +944,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         const TType malformed[]{{K::Decimal, false, 1, 2}};
         UNIT_ASSERT_EXCEPTION(arena.TupleType(malformed), TFrontendError);
         const TType nested[]{state.Optional()};
-        UNIT_ASSERT_EXCEPTION(arena.TupleType(nested), TFrontendError);
+        UNIT_ASSERT(arena.TupleItems(arena.TupleType(nested))[0] == state.Optional());
     }
 
     Y_UNIT_TEST(TupleStatesExecuteFoldRebindAndImportWithoutLosingTypes) {

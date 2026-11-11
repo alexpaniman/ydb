@@ -40,6 +40,40 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST(NestedAggregateStatesUseLexicographicOrder) {
+        const TVector<TString> values{
+            "(0, AsList(id, id + 1))",
+            "(0, AsList(CAST(NULL AS Uint64?), id))",
+            "(0, IF(id = 1ul, AsList(1ul), AsList(1ul, id)))",
+            "(0, IF(id = 1ul, CAST(AsList() AS List<Uint64>), AsList(id)))",
+            "(0, IF(id = 1ul, NULL, AsList(id)))",
+            "(0, ((id, id + 1), AsList(id)))",
+            "(0, AsList(AsList(id), AsList(id + 1)))",
+        };
+        TVector<TString> baseline(values.size());
+        TString failures;
+        for (const bool native : {false, true}) {
+            TKikimrRunner kikimr(Settings(native));
+            auto table = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            CreateTables(kikimr, table);
+            for (size_t i = 0; i < values.size(); ++i) {
+                const TString sql = "SELECT MIN(" + values[i] + "), MAX(" + values[i] + ") FROM t";
+                const auto result = table.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                if (!result.IsSuccess()) {
+                    failures += TStringBuilder() << "native=" << native << ": " << sql << "\n" << result.GetIssues().ToString() << "\n";
+                    table = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+                    continue;
+                }
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                TString actual = FormatResultSetYson(result.GetResultSet(0));
+                for (const auto& column : result.GetResultSet(0).GetColumnsMeta()) actual += "|" + column.Type.ToString();
+                if (!native) baseline[i] = actual;
+                else if (actual != baseline[i]) failures += sql + "\nnative: " + actual + "\nlegacy: " + baseline[i] + "\n";
+            }
+        }
+        UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
     Y_UNIT_TEST(BooleanFilterPreparationMatchesLegacy) {
         const TVector<TString> predicates{"Just(r)", "Just(r = true)", "r IS NOT NULL", "r IS NULL",
             "b AND true", "b OR false", "IF(b, true, false)", "Just(b IS NOT NULL)"};

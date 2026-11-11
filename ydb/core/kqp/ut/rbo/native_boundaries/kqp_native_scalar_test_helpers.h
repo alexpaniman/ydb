@@ -78,7 +78,16 @@ inline void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TEx
                 for (std::size_t i = 0; i < items.size(); ++i) self(self, value.GetElement(i), items[i]);
                 break;
             }
-            case K::List: UNIT_FAIL("collection values are only IN operands");
+            case K::List: {
+                auto iterator = value.GetListIterator();
+                NUdf::TUnboxedValue item;
+                for (const auto& expectedItem : std::get<NFrontend::TTuple>(expected.Data)->Items) {
+                    UNIT_ASSERT_C(iterator.Next(item), sql);
+                    self(self, item, expectedItem);
+                }
+                UNIT_ASSERT_C(!iterator.Next(item), sql);
+                break;
+            }
             case K::Calendar: UNIT_FAIL("calendar values must be consumed by scalar date operations");
             case K::Json: case K::JsonDocument: UNIT_FAIL("JSON values must be consumed by scalar JSON operations");
         }
@@ -86,10 +95,15 @@ inline void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TEx
     checkValue(checkValue, value, expected);
 }
 inline void CheckScalar(std::string_view sql) {
-    auto program = NFrontend::NDetail::Compile(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
-        throw NFrontend::TFrontendError(pos, "unexpected table");
-    });
-    CheckScalar(program.Expressions, Projection(program), sql);
+    try {
+        const auto compiled = NFrontend::CompileNative(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
+            throw NFrontend::TFrontendError(pos, "unexpected table");
+        });
+        const auto& program = compiled.Program->Get();
+        CheckScalar(program.Expressions, Projection(program), sql);
+    } catch (const std::exception& error) {
+        UNIT_FAIL(TString(sql) << ": " << error.what());
+    }
 }
 
 } // namespace NKikimr::NKqp::NTests
