@@ -3148,7 +3148,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             default: return false;
         }
     };
-    auto fold = [&](TExprNode node, TExprId original, bool changed, bool firstTotal) {
+    auto fold = [&](TExprNode node, TExprId original, bool changed, bool firstTotal, bool total) {
         auto retain = [&] { return changed ? Rebuild(node) : original; };
         auto literal = [&](TScalar value) {
             auto remaining = maxStringBytes;
@@ -3164,6 +3164,16 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];
+        }
+        // Ordinary comparisons are strict in NULL. Discard their other
+        // operands only when this traversal has proved evaluation total;
+        // checked and volatile operands must remain observable.
+        if (total && IsComparison(node.Op)) {
+            for (const auto arg : node.Arguments) {
+                const auto& value = (*this)[arg];
+                if (value.Op == O::Literal && std::holds_alternative<std::monostate>(value.Value))
+                    return literal(std::monostate{});
+            }
         }
         if (node.Op == O::Ensure) {
             const auto& condition = (*this)[node.Arguments[1]];
@@ -3265,7 +3275,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
                 changed |= replacement.Id != arg;
                 arg = replacement.Id;
             }
-            const auto result = intern(fold(std::move(node), id, changed, firstTotal));
+            const auto result = intern(fold(std::move(node), id, changed, firstTotal, total));
             rewritten.emplace(id, TRewritten{result, total || (*this)[result].Op == O::Literal});
         }
     }

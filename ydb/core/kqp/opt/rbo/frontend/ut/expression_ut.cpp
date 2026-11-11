@@ -22,6 +22,58 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(NullComparisonFoldingRequiresTotalOperands) {
+        for (const auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual}) {
+            for (const bool nullable : {false, true}) for (const bool reverse : {false, true}) {
+                TExpressionArena arena;
+                const TType type{K::Int64, nullable};
+                const auto input = arena.Column(0, type);
+                const auto absent = arena.Literal(type.Optional(), {});
+                const auto compare = [&](TExprId value) {
+                    return reverse ? arena.Binary(op, absent, value) : arena.Binary(op, value, absent);
+                };
+                const auto root = compare(input);
+                const auto folded = arena.FoldConstants(std::span(&root, 1)).front();
+                UNIT_ASSERT(arena[folded].Op == O::Literal);
+                UNIT_ASSERT(arena[folded].Type == arena[root].Type);
+                TEvaluationContext context;
+                context.Column = [&](TColumnId) { return TValue{type, std::int64_t{7}}; };
+                UNIT_ASSERT(Evaluate(arena, root, context).IsNull());
+                UNIT_ASSERT(Evaluate(arena, folded, context).IsNull());
+                const auto checked = compare(arena.Ensure(input, arena.Literal({K::Bool}, false), "comparison check"));
+                const auto checkedFolded = arena.FoldConstants(std::span(&checked, 1)).front();
+                UNIT_ASSERT(arena[checkedFolded].Op != O::Literal);
+                UNIT_ASSERT_EXCEPTION(Evaluate(arena, checked, context), TFrontendError);
+                UNIT_ASSERT_EXCEPTION(Evaluate(arena, checkedFolded, context), TFrontendError);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(NullComparisonFoldingPreservesVolatileAndNullSafeEvaluation) {
+        TExpressionArena arena;
+        const auto random = arena.Call("RandomNumber", {});
+        const auto absent = arena.Literal({K::Uint64, true}, {});
+        std::size_t calls = 0;
+        TEvaluationContext context;
+        context.RandomNumber = [&] { ++calls; return std::uint64_t{7}; };
+        for (const auto root : {arena.Binary(O::Equal, random, absent), arena.Binary(O::Equal, absent, random)}) {
+            const auto folded = arena.FoldConstants(std::span(&root, 1)).front();
+            UNIT_ASSERT(arena[folded].Op != O::Literal);
+            const auto before = calls;
+            UNIT_ASSERT(Evaluate(arena, root, context).IsNull());
+            UNIT_ASSERT(Evaluate(arena, folded, context).IsNull());
+            UNIT_ASSERT_VALUES_EQUAL(calls, before + 2);
+        }
+        const auto column = arena.Column(0, {K::Uint64, true});
+        const auto root = arena.Binary(O::IsNotDistinct, column, absent);
+        const auto folded = arena.FoldConstants(std::span(&root, 1)).front();
+        for (const bool missing : {false, true}) {
+            context.Column = [&](TColumnId) { return TValue{{K::Uint64, true}, missing ? TScalar{} : TScalar{std::uint64_t{7}}}; };
+            UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, root, context).Data), missing);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded, context).Data), missing);
+        }
+    }
+
     Y_UNIT_TEST(NullRemainsItsOwnNullableTypeThroughTupleAccess) {
         TExpressionArena arena;
         const auto null = arena.Null();
