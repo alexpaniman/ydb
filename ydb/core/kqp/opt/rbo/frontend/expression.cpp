@@ -1981,6 +1981,13 @@ TExprId TExpressionArena::Import(const TExpressionArena& source, TExprId root,
 
 TExprId TExpressionArena::RewriteColumns(TExprId root,
     const std::function<TExprId(TExprId, TColumnId, TType, TSourcePosition)>& bindColumn) {
+    const auto& rootNode = (*this)[root];
+    if (rootNode.Op == O::Column) {
+        const auto replacement = bindColumn(root, rootNode.ColumnId, rootNode.Type, rootNode.Position);
+        (void)(*this)[replacement];
+        return replacement;
+    }
+    if (rootNode.Arguments.empty()) return root;
     return Rewrite(root, [&](TExprId id) {
         const auto& node = (*this)[id];
         return node.Op == O::Column ? bindColumn(id, node.ColumnId, node.Type, node.Position) : id;

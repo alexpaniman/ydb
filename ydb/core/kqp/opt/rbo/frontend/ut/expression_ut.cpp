@@ -1635,6 +1635,31 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(arena.Size(), 100001);
     }
 
+    Y_UNIT_TEST(ColumnRewritePreservesLeafAndReplacementContracts) {
+        TExpressionArena arena;
+        const auto column = arena.Column(7, {K::Int32}, {8, 2, 3});
+        const auto literal = Integer(arena, 1);
+        const auto parameter = arena.Parameter("p", {K::Int32});
+        for (const auto root : {literal, parameter})
+            UNIT_ASSERT_VALUES_EQUAL(arena.RewriteColumns(root, {}), root);
+        unsigned visits = 0;
+        const auto rebound = arena.RewriteColumns(column, [&](auto original, auto id, auto type, auto position) {
+            ++visits;
+            UNIT_ASSERT_VALUES_EQUAL(original, column);
+            UNIT_ASSERT_VALUES_EQUAL(id, 7);
+            UNIT_ASSERT(type == TType{K::Int32});
+            UNIT_ASSERT_VALUES_EQUAL(position.Offset, 8);
+            return arena.Column(id, type.Optional(), position);
+        });
+        UNIT_ASSERT_VALUES_EQUAL(visits, 1);
+        UNIT_ASSERT(arena[column].Type == TType{K::Int32});
+        UNIT_ASSERT(arena[rebound].Type == (TType{K::Int32, true}));
+        UNIT_ASSERT_EXCEPTION(arena.RewriteColumns(column, [&](auto, auto, auto, auto) {
+            return static_cast<TExprId>(arena.Size());
+        }), std::out_of_range);
+        UNIT_ASSERT_EXCEPTION(arena.RewriteColumns(arena.Size(), {}), std::out_of_range);
+    }
+
     Y_UNIT_TEST(ErrorsPreserveSourceAndRejectInvalidTypes) {
         TExpressionArena arena;
         auto input = Integer(arena, 1);
