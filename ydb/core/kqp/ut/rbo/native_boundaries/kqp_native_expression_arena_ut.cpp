@@ -11,6 +11,45 @@ using TArena = NFrontend::TExpressionArena;
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressionArena) {
+    Y_UNIT_TEST(DecimalJoinKeysUseOneScaleBeforePartitioning) {
+        using namespace NFrontend;
+        for (const auto& types : {std::pair{TType{K::Decimal, false, 10, 0}, TType{K::Decimal, false, 22, 9}},
+                std::pair{TType{K::Decimal, false, 35, 0}, TType{K::Decimal, false, 35, 35}}}) {
+            TPlanProps props;
+            auto arena = std::make_shared<TArena>();
+            const auto leftId = props.InfoUnitRegistry.AddGenerated("left");
+            const auto rightId = props.InfoUnitRegistry.AddGenerated("right");
+            const auto left = arena->Column(leftId, types.first), right = arena->Column(rightId, types.second);
+            auto original = TExpression::FromNative(arena, arena->Binary(O::Equal, left, right), &props);
+            UNIT_ASSERT(!original.MaybeEquiJoinCondition());
+            UNIT_ASSERT(original.MaybeExprEquiJoinCondition());
+            TEquiJoinCondition condition(original);
+            TMappedIUs<TExpression> definitions;
+            const auto rewritten = condition.ExtractExpressions(definitions);
+            UNIT_ASSERT(rewritten);
+            UNIT_ASSERT(rewritten->MaybeEquiJoinCondition());
+            UNIT_ASSERT(!definitions.Items().empty());
+            const auto& operands = (*arena)[rewritten->GetNativeRoot()].Arguments;
+            UNIT_ASSERT((*arena)[operands[0]].Type.Required() == (*arena)[operands[1]].Type.Required());
+            for (const auto* a : {"-1", "0", "1", "2", "inf", "-inf", "nan"})
+            for (const auto* b : {"-0.1", "0", "0.1", "1", "2", "inf", "-inf", "nan"}) {
+                const auto x = NYql::NDecimal::FromStringEx(a, types.first.Precision, types.first.Scale);
+                const auto y = NYql::NDecimal::FromStringEx(b, types.second.Precision, types.second.Scale);
+                if (NYql::NDecimal::IsError(x) || NYql::NDecimal::IsError(y)) continue;
+                TEvaluationContext input;
+                input.Column = [&](TColumnId id) { return id == leftId ? TValue{types.first, TDecimal{x}} : TValue{types.second, TDecimal{y}}; };
+                const auto expected = Evaluate(*arena, original.GetNativeRoot(), input);
+                std::unordered_map<TColumnId, TValue> keys;
+                for (const auto& [id, definition] : definitions.Items()) keys.emplace(id, Evaluate(*arena, definition.GetNativeRoot(), input));
+                TEvaluationContext output;
+                output.Column = [&](TColumnId id) { return keys.contains(id) ? keys.at(id) : input.Column(id); };
+                const auto actual = Evaluate(*arena, rewritten->GetNativeRoot(), output);
+                UNIT_ASSERT_VALUES_EQUAL_C(!actual.IsNull() && std::get<bool>(actual.Data), std::get<bool>(expected.Data),
+                    TStringBuilder() << a << " / " << b);
+            }
+        }
+    }
+
     Y_UNIT_TEST(DecimalTextCastsMatchRuntimeWithoutYqlEvaluation) {
         using namespace NFrontend;
         TVector<std::string> inputs{"", "+", "-", ".", "+.", "-.", "0", "42", "-7", "invalid", " 1", "1 ",

@@ -40,6 +40,84 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST_TWIN(ReferenceAggregatesAndComputedJoinKeysMatchLegacy, PhysicalStagePeephole) {
+        const TVector<TString> queries = {
+            "SELECT MIN_BY(value, id), MAX_BY(value, id), MIN_BY(id, value), MAX_BY(id, value) FROM `/Root/t`;",
+            "SELECT g, MIN_BY(value, id), MAX_BY(id, value) FROM `/Root/t` GROUP BY g ORDER BY g;",
+            "SELECT MIN_BY(value, id), MAX_BY(id, value) FROM `/Root/t` WHERE id < 0;",
+            "SELECT MAX_BY(value, id) FROM `/Root/t` WHERE id <= 2;",
+            "SELECT MIN_BY(id, value), MAX_BY(id, value) FROM `/Root/t` WHERE value IS NULL;",
+            "SELECT MIN_BY(value, id), MAX_BY(value, id) FROM `/Root/t` WHERE value IS NULL;",
+            "SELECT MIN_BY(id, NULL), MAX_BY(NULL, id) FROM `/Root/t`;",
+            "SELECT MIN_BY(AsList(id, id + 1), value), MAX_BY(AsList(id, id + 1), value) FROM `/Root/t`;",
+            "SELECT MIN_BY(value, id), MAX_BY(id, value), COUNT(DISTINCT value) FROM `/Root/t`;",
+            "SELECT g, MAX_BY(value, id), COUNT(DISTINCT value) FROM `/Root/t` GROUP BY g ORDER BY g;",
+            "SELECT g, GROUPING(g) AS grouping, MIN_BY(value, id), MAX_BY(id, value) FROM `/Root/t` "
+                "GROUP BY ROLLUP(g) ORDER BY grouping, g;",
+            "SELECT l.id AS a, r.id AS b, s.id AS c FROM `/Root/t` AS l "
+                "LEFT JOIN `/Root/t` AS r ON CAST(l.id AS Decimal(10, 0)) = CAST(r.id AS Decimal(22, 9)) "
+                "LEFT JOIN `/Root/t` AS s ON CAST(l.id + 2 AS Decimal(10, 0)) = CAST(s.id AS Decimal(22, 9)) ORDER BY a;",
+            "SELECT Ensure(id, id > 0, 'positive') FROM `/Root/t` ORDER BY id;",
+            "SELECT id, [10, 20][id - 2], [10, 20][CAST(id - 2 AS Uint32?)], "
+                "[10, 20][CAST(id AS Double) / 2] FROM `/Root/t` ORDER BY id;",
+            // The established optimizer is an independent oracle for tuple
+            // NULL semantics when focused lowering replaces full peephole.
+            "SELECT id, (id, value) IN ((1, 'b'), (2, NULL)), "
+                "(id, value) NOT IN ((3, 'a'), (4, NULL)), "
+                "((id, value), id) IN (((1, 'b'), 1), ((2, NULL), 2)) "
+                "FROM `/Root/t` ORDER BY id;",
+        };
+        TVector<TString> baseline(queries.size());
+        TString failures;
+        for (const bool native : {false, true}) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            // PR #58587 fixture: legacy RBO does not import MIN_BY/MAX_BY; use the established
+            // optimizer as a result oracle, and require direct RBO for native.
+            config->SetEnableNewRBO(native);
+            config->SetEnableNewRBOPhysicalStagePeephole(PhysicalStagePeephole);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            auto settings = TKikimrSettings(app).SetWithSampleTables(false);
+            settings.LogSettings = TTestLogSettings();
+            settings.LogSettings->DefaultLogPriority = NActors::NLog::PRI_CRIT;
+            TKikimrRunner kikimr(settings);
+            auto table = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            auto schema = table.ExecuteSchemeQuery("CREATE TABLE `/Root/t` "
+                "(id Int64 NOT NULL, g Int32 NOT NULL, value String, PRIMARY KEY(id));").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            auto rows = TValueBuilder().BeginList()
+                .AddListItem().BeginStruct().AddMember("id").Int64(1).AddMember("g").Int32(1).AddMember("value").OptionalString("b").EndStruct()
+                .AddListItem().BeginStruct().AddMember("id").Int64(2).AddMember("g").Int32(1).AddMember("value").EmptyOptional(EPrimitiveType::String).EndStruct()
+                .AddListItem().BeginStruct().AddMember("id").Int64(3).AddMember("g").Int32(1).AddMember("value").OptionalString("a").EndStruct()
+                .AddListItem().BeginStruct().AddMember("id").Int64(4).AddMember("g").Int32(2).AddMember("value").OptionalString("c").EndStruct()
+                .EndList().Build();
+            auto data = kikimr.GetTableClient().BulkUpsert("/Root/t", std::move(rows)).GetValueSync();
+            UNIT_ASSERT_C(data.IsSuccess(), data.GetIssues().ToString());
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            for (size_t i = 0; i < queries.size(); ++i) {
+                const auto result = session.ExecuteQuery(queries[i], NQuery::TTxControl::BeginTx().CommitTx()).GetValueSync();
+                if (!result.IsSuccess()) {
+                    failures += TStringBuilder() << "native=" << native << " query=" << i << ": " << queries[i]
+                        << "\n" << result.GetIssues().ToString() << "\n";
+                    session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+                    continue;
+                }
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, queries[i]);
+                TString actual = FormatResultSetYson(result.GetResultSet(0));
+                for (const auto& column : result.GetResultSet(0).GetColumnsMeta())
+                    actual += "|" + column.Name + ":" + column.Type.ToString();
+                if (!native) { baseline[i] = actual; }
+                else if (actual != baseline[i]) {
+                    failures += queries[i] + "\nnative: " + actual + "\nlegacy: " + baseline[i] + "\n";
+                }
+            }
+
+        }
+        UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
     Y_UNIT_TEST(NestedAggregateStatesUseLexicographicOrder) {
         const TVector<TString> values{
             "(0, AsList(id, id + 1))",

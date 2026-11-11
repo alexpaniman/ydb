@@ -178,6 +178,16 @@ TNativeId UnwrapNativeOptionalLift(const TNativeArena& arena, TNativeId id) {
     return id;
 }
 
+std::optional<NFrontend::TType> NativeDecimalJoinKeyType(const TNativeArena& arena, const NFrontend::TExprNode& equality) {
+    const auto a = arena[equality.Arguments[0]].Type, b = arena[equality.Arguments[1]].Type;
+    if (a.Kind != NFrontend::ETypeKind::Decimal || b.Kind != NFrontend::ETypeKind::Decimal || a.Scale == b.Scale) return {};
+    // Retain an integral digit so decimal casts admit both wholly fractional
+    // and integral domains. Exactness checks below reject any lost digits.
+    const auto scale = std::min<ui8>(std::max(a.Scale, b.Scale), 34);
+    const unsigned precision = std::max(a.Precision - a.Scale, b.Precision - b.Scale) + scale;
+    return NFrontend::TType{NFrontend::ETypeKind::Decimal, false, static_cast<ui8>(std::min(precision, 35u)), scale};
+}
+
 TNativeId ImportNative(TNativeArena& arena, const TExpression& expression) {
     if (&arena == expression.GetNativeArena().get()) return expression.GetNativeRoot();
     return arena.Import(*expression.GetNativeArena(), expression.GetNativeRoot(),
@@ -314,7 +324,7 @@ bool TExpression::MaybeEquiJoinConditionInternal(bool includeExpressions) const 
     const auto left = NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[0]));
     const auto right = NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[1]));
     return includeExpressions ? !left.GetInputIUs(true, false).Empty() && !right.GetInputIUs(true, false).Empty()
-        : left.IsColumnAccess() && right.IsColumnAccess();
+        : left.IsColumnAccess() && right.IsColumnAccess() && !NativeDecimalJoinKeyType(*NativeArena_, node);
 }
 
 bool TExpression::MaybeConstantCondition() const {
@@ -444,7 +454,7 @@ TEquiJoinCondition::TEquiJoinCondition(const TExpression& expr) : Expr(expr) {
     const auto right = NativePart(Expr, UnwrapNativeOptionalLift(*Expr.GetNativeArena(), node.Arguments[1]));
     LeftIUs = left.GetInputIUs(false, true);
     RightIUs = right.GetInputIUs(false, true);
-    IncludesExpressions = !left.IsColumnAccess() || !right.IsColumnAccess();
+    IncludesExpressions = !left.IsColumnAccess() || !right.IsColumnAccess() || NativeDecimalJoinKeyType(*Expr.GetNativeArena(), node).has_value();
     return;
 }
 
@@ -463,14 +473,31 @@ std::optional<TExpression> TEquiJoinCondition::ExtractExpressions(TMappedIUs<TEx
     if (!IncludesExpressions) return std::nullopt;
     auto& arena = *Expr.GetNativeArena();
     // Copy child IDs before appending definitions can relocate arena nodes.
-    const auto operands = arena[UnwrapNativeOptionalLift(arena, Expr.GetNativeRoot())].Arguments;
+    const auto equality = arena[UnwrapNativeOptionalLift(arena, Expr.GetNativeRoot())];
+    const auto operands = equality.Arguments;
+    const auto keyType = NativeDecimalJoinKeyType(arena, equality);
     std::unordered_map<TNativeId, TNativeId> replacements;
     for (auto side : operands) {
         side = UnwrapNativeOptionalLift(arena, side);
-        if (arena[side].Op == TNativeOp::Column || replacements.contains(side)) continue;
+        auto key = side;
+        if (keyType) {
+            // Scalar Decimal equality compares scales directly. Hash keys need
+            // identical coefficients before the existing shuffle stage, not a
+            // conversion inside the physical join after partitioning.
+            const auto type = arena[side].Type;
+            key = arena.Cast(side, *keyType, equality.Position);
+            if (type.Scale > keyType->Scale || type.Precision - type.Scale + keyType->Scale > keyType->Precision) {
+                // A value needing more integral or fractional digits cannot
+                // equal a value from the other key domain. Keep it unmatched
+                // rather than letting rounding/saturation create a match.
+                key = arena.If(arena.Binary(TNativeOp::Equal, side, key, equality.Position), key,
+                    arena.Literal(arena[key].Type.Optional(), {}, equality.Position), equality.Position);
+            }
+        }
+        if ((arena[key].Op == TNativeOp::Column && key == side) || replacements.contains(side)) continue;
         const auto column = Expr.PlanProps->InfoUnitRegistry.AddGenerated("join_key");
-        expressions.Add(column, NativePart(Expr, side));
-        replacements.emplace(side, arena.Column(column, arena[side].Type, arena[side].Position));
+        expressions.Add(column, NativePart(Expr, key));
+        replacements.emplace(side, arena.Column(column, arena[key].Type, equality.Position));
     }
     return NativePart(Expr, arena.Rewrite(Expr.GetNativeRoot(), [&](TNativeId id) {
         const auto found = replacements.find(id);

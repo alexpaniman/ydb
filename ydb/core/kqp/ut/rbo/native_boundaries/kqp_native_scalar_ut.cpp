@@ -70,12 +70,23 @@ Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
                 {-std::numeric_limits<double>::infinity()}, {std::numeric_limits<double>::quiet_NaN()}}) {
             TEvaluationContext evaluation;
             evaluation.Parameter = [&](auto) { return TValue{{K::Double, true}, value ? TScalar{*value} : TScalar{}}; };
+            const auto expected = value && (*value == 0 || *value == 1);
+            const auto evaluated = Evaluate(arena, root, evaluation);
+            UNIT_ASSERT_VALUES_EQUAL(evaluated.IsNull(), !expected);
+            if (expected) UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(evaluated.Data), *value == 0 ? 10 : 20);
             CheckScalar(arena, root, "list index checked conversion", evaluation,
                 [&](NYql::NCommon::TMkqlBuildContext& build, NMiniKQL::TProgramBuilder& pb) {
                     auto item = value ? pb.NewOptional(pb.NewDataLiteral<double>(*value))
                         : pb.NewEmptyOptional(pb.NewOptionalType(pb.NewDataType(NUdf::TDataType<double>::Id)));
                     build.Parameters = pb.NewStruct({{"$index", item}});
                 });
+        }
+        for (const auto* text : {"0", "0.5", "0.999", "inf", "nan"}) {
+            const auto source = arena.Literal({K::String}, std::string{text});
+            const auto decimal = arena.Cast(source, {K::Decimal, false, 35, 34});
+            const auto access = arena.ListElement(list, decimal);
+            UNIT_ASSERT_VALUES_EQUAL(Evaluate(arena, access).IsNull(), std::string_view(text) != "0");
+            CheckScalar(arena, access, "wide Decimal list index requires an exact integral value");
         }
     }
 

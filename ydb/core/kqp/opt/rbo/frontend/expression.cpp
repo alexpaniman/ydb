@@ -1223,9 +1223,14 @@ TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePositi
     ++result.OptionalDepth;
     // Missing index and an existing NULL element are distinct: list access
     // adds one optional layer, including for an already optional element.
-    // SQL subscripts use the same checked Uint64 conversion as explicit casts.
-    // Keep conversion semantics centralized, including fractional/invalid keys.
-    index = Cast(index, {K::Uint64}, position);
+    // A subscript is an exact dictionary key. Explicit numeric casts may
+    // truncate fractions, so accept their result only if it still equals the
+    // original key. Express the check with ordinary native scalar operations.
+    const auto converted = Cast(index, {K::Uint64}, position);
+    if (key.Kind == K::Float || key.Kind == K::Double || (key.Kind == K::Decimal && key.Scale))
+        index = If(Binary(O::Equal, index, Cast(converted, key.Required(), position), position), converted,
+            Literal((*this)[converted].Type.Optional(), {}, position), position);
+    else index = converted;
     return Append({O::ListElement, result, position, {list, index}, {}, {}, 0});
 }
 
