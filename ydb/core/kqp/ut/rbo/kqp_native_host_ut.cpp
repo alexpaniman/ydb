@@ -6133,7 +6133,7 @@ $round = ($x,$y) -> {return $x;};
         settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(true);
         TKikimrRunner kikimr(settings);
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
-        const auto result = session.ExecuteDataQuery("SELECT ListLength([1, 2]) AS n",
+        const auto result = session.ExecuteDataQuery("SELECT ListLength(ListReverse([1, 2])) AS n",
             TTxControl::BeginTx().CommitTx()).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") != std::string::npos, result.GetIssues().ToString());
@@ -6162,7 +6162,7 @@ $round = ($x,$y) -> {return $x;};
     Y_UNIT_TEST(RequiredModeRejectsUnsupportedWithoutFallback) {
         TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
-        for (const auto* sql : {"SELECT ListLength([1, 2]) AS n", "SELECT * FROM 'table'"}) {
+        for (const auto* sql : {"SELECT ListLength(ListReverse([1, 2])) AS n", "SELECT * FROM 'table'"}) {
             const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
             UNIT_ASSERT_C(!result.IsSuccess(), sql);
             UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
