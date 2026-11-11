@@ -32,6 +32,77 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(SetMembershipUsesExistingJoinAndDistinctBoundaries) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify})
+        for (const auto* operation : {"INTERSECT", "EXCEPT"}) for (const bool nullable : {false, true}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto column = nullable ? "value" : "id";
+            const auto sql = std::string("SELECT ") + column + " FROM t " + operation + " SELECT " + column + " FROM u";
+            const auto compiled = CompileNative(sql, Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& distinct = program.Relations[program.Results[0].Root];
+            UNIT_ASSERT(distinct.Kind == ERelation::Aggregate);
+            UNIT_ASSERT(distinct.DistinctAll);
+            UNIT_ASSERT_VALUES_EQUAL(distinct.Aggregates.size(), 1);
+            UNIT_ASSERT(distinct.Aggregates[0].Function == "distinct");
+            UNIT_ASSERT_VALUES_UNEQUAL(distinct.Aggregates[0].Input, distinct.Aggregates[0].Output);
+            const auto& join = program.Relations[distinct.Inputs[0]];
+            UNIT_ASSERT(join.Kind == ERelation::Join);
+            UNIT_ASSERT(join.JoinKind == (std::string_view(operation) == "INTERSECT" ? EJoinKind::LeftSemi : EJoinKind::LeftOnly));
+            unsigned pickles = 0;
+            for (const auto& node : program.Expressions.Nodes()) pickles += node.Op == EOpcode::StablePickle;
+            UNIT_ASSERT_VALUES_EQUAL(pickles, nullable ? 2 : 0);
+            UNIT_ASSERT(program.Results[0].Columns[0].Name == column);
+        }
+    }
+
+    Y_UNIT_TEST(NestedSetKeysAlignByNameWithoutChangingPublicPositions) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        const auto compiled = CompileNative(
+            "SELECT id AS z, id + 1ul AS a FROM t INTERSECT SELECT id AS z, id + 1ul AS a FROM u "
+            "INTERSECT SELECT id AS z, id + 1ul AS a FROM v", Catalog, settings);
+        const auto& program = compiled.Program->Get();
+        const auto& result = program.Results[0];
+        UNIT_ASSERT_VALUES_EQUAL(result.Columns[0].Name, "z");
+        UNIT_ASSERT_VALUES_EQUAL(result.Columns[1].Name, "a");
+        const auto& distinct = program.Relations[result.Root];
+        UNIT_ASSERT(distinct.DistinctAll);
+        UNIT_ASSERT_VALUES_EQUAL(distinct.Aggregates[0].Output, result.Columns[1].Column);
+        UNIT_ASSERT_VALUES_EQUAL(distinct.Aggregates[1].Output, result.Columns[0].Column);
+        for (std::size_t i = 0; i < distinct.Aggregates.size(); ++i) {
+            UNIT_ASSERT_VALUES_EQUAL(distinct.GroupKeys[i], distinct.Aggregates[i].Input);
+            UNIT_ASSERT_VALUES_UNEQUAL(distinct.Aggregates[i].Input, distinct.Aggregates[i].Output);
+        }
+
+        const auto mixed = CompileNative(
+            "SELECT 1 AS z, 'x' AS a UNION SELECT 2 AS z, 'y' AS a UNION ALL SELECT 3 AS z, 'c' AS a", Catalog, settings);
+        const auto& unionProgram = mixed.Program->Get();
+        for (const auto& relation : unionProgram.Relations) if (relation.Kind == ERelation::UnionAll) {
+            for (const auto& branch : relation.UnionInputs) for (std::size_t i = 0; i < branch.size(); ++i)
+                UNIT_ASSERT(unionProgram.Columns[branch[i]].Type == unionProgram.Columns[relation.Columns[i]].Type);
+        }
+    }
+
+    Y_UNIT_TEST(DistinctExportsFreshBindingsAndRebindsOrdering) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT DISTINCT id AS z, value AS a, id AS copy FROM t ORDER BY a, z", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& result = program.Results[0];
+            const auto& sort = program.Relations[result.Root];
+            UNIT_ASSERT(sort.Kind == ERelation::Sort);
+            UNIT_ASSERT_VALUES_EQUAL(sort.SortKeys[0].Column, result.Columns[1].Column);
+            UNIT_ASSERT_VALUES_EQUAL(sort.SortKeys[1].Column, result.Columns[0].Column);
+            const auto& distinct = program.Relations[sort.Inputs[0]];
+            UNIT_ASSERT(distinct.DistinctAll);
+            UNIT_ASSERT_VALUES_EQUAL(distinct.Aggregates.size(), 3);
+            for (std::size_t i = 0; i < distinct.Aggregates.size(); ++i) {
+                UNIT_ASSERT_VALUES_EQUAL(distinct.Aggregates[i].Output, result.Columns[i].Column);
+                UNIT_ASSERT_VALUES_UNEQUAL(distinct.Aggregates[i].Input, distinct.Aggregates[i].Output);
+            }
+        }
+    }
+
     Y_UNIT_TEST(RegexMatchersBindTheirConfigurationAndLexicalScope) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;

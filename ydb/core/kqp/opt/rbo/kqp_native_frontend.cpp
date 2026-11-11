@@ -389,7 +389,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                         for (const auto& aggregate : relation.Aggregates) aggregates.Add(aggregate.Output,
                             TOpAggregationTraits{aggregate.Input, AggregateName(aggregate.Function), aggregate.Distinct, false,
                                 aggregate.Function == "avg" ? std::optional{program.Columns[aggregate.Output].Type} : std::nullopt});
-                        op = MakeIntrusive<TOpAggregate>(input(), std::move(aggregates), std::move(keys), EOpPhase::Undefined, false, pos);
+                        op = MakeIntrusive<TOpAggregate>(input(), std::move(aggregates), std::move(keys), EOpPhase::Undefined, relation.DistinctAll, pos);
                         break;
                     }
                     // Lower once to executable branches. A GroupingSets wrapper

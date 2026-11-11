@@ -143,6 +143,8 @@ struct TRelation {
     EJoinKind JoinKind = EJoinKind::Inner;
     std::vector<TColumnId> GroupKeys;
     std::vector<TAggregate> Aggregates;
+    // DISTINCT exports fresh aliases of its keys, matching the RBO aggregate contract.
+    bool DistinctAll = false;
     // An aggregate with grouping sets has fresh outward key/result bindings.
     // Indicator bindings map their output to the input key they describe.
     TGroupingSets GroupingSets;

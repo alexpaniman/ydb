@@ -1587,10 +1587,11 @@ private:
         root = Map(root, std::move(definitions), query.Position);
         root = Map(root, std::move(sortDefinitions), query.Position);
         if (query.Distinct) {
-            TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root};
-            std::unordered_set<TColumnId> seen;
-            for (const auto& output : outputs) if (seen.insert(output.Column).second) node.GroupKeys.push_back(output.Column);
-            node.Columns = node.GroupKeys; root = Relation(std::move(node));
+            std::unordered_map<TColumnId, std::size_t> positions;
+            if (!sort.empty()) for (std::size_t i = 0; i < outputs.size(); ++i) positions.emplace(outputs[i].Column, i);
+            auto result = Distinct({root, std::move(outputs)}, query.Position);
+            root = result.Root; outputs = std::move(result.Columns);
+            for (auto& key : sort) key.Column = outputs[positions.at(key.Column)].Column;
         }
 
         if (!sort.empty()) {
@@ -1617,25 +1618,39 @@ private:
         return root;
     }
 
-    TQueryResult Distinct(TQueryResult result, TSourcePosition pos) {
+    TQueryResult Distinct(TQueryResult result, TSourcePosition pos, bool lexicalKeys = false) {
         TRelation node{ERelation::Aggregate, pos};
+        node.DistinctAll = true;
         std::vector<TDefinition> before, after;
-        std::unordered_set<TColumnId> seen;
-        for (auto& column : result.Columns) {
+        std::vector<TResultColumn*> keys;
+        for (auto& column : result.Columns) keys.push_back(&column);
+        // Set-operation aggregates use lexical keys; public positions remain
+        // unchanged. Fresh outputs preserve the existing DISTINCT boundary.
+        if (lexicalKeys) std::stable_sort(keys.begin(), keys.end(), [](const auto* left, const auto* right) {
+            return left->Name < right->Name;
+        });
+        const auto add = [&](TColumnId input, TColumnId output) {
+            node.GroupKeys.push_back(input);
+            node.Aggregates.push_back({output, input, "distinct"});
+            node.Columns.push_back(output);
+        };
+        for (auto* key : keys) {
+            auto& column = *key;
+            const auto input = column.Column;
+            column.Column = Column(column.Name, {}, column.Type, pos);
             // A bare Null field has one value but is not a runtime data key.
             // Reconstruct it after grouping the remaining fields.
             if (column.Type.Kind == ETypeKind::Null) {
-                column.Column = Column(column.Name, {}, column.Type, pos);
                 after.push_back({column.Column, Program.Expressions.Null(pos)});
-            } else if (seen.insert(column.Column).second) node.GroupKeys.push_back(column.Column);
+            } else add(input, column.Column);
         }
         if (node.GroupKeys.empty()) {
             // A constant key preserves zero rows for an empty input, unlike
             // a global aggregate with no grouping keys.
-            node.GroupKeys.push_back(Materialize(Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{0}, pos), before, pos));
+            const auto input = Materialize(Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{0}, pos), before, pos);
+            add(input, Column("distinct_key", {}, {ETypeKind::Uint64}, pos));
         }
         node.Inputs = {Map(result.Root, std::move(before), pos)};
-        node.Columns = node.GroupKeys;
         result.Root = Map(Relation(std::move(node)), std::move(after), pos);
         return result;
     }
@@ -1721,7 +1736,12 @@ private:
             std::vector<TColumnId> result;
             for (const auto& column : input.Columns) {
                 const auto value = Program.Expressions.Column(column.Column, column.Type, pos);
-                result.push_back(Materialize(Program.Expressions.Unary(EOpcode::StablePickle, value, pos), definitions, pos));
+                // Required scalar keys already have the join's equality
+                // semantics. Serialize only nullable keys to make NULL equal
+                // NULL for set membership, as in the existing SQL lowering.
+                const auto key = column.Type.OptionalDepth || column.Type.Kind == ETypeKind::Null
+                    ? Program.Expressions.Unary(EOpcode::StablePickle, value, pos) : value;
+                result.push_back(Materialize(key, definitions, pos));
             }
             input.Root = Map(input.Root, std::move(definitions), pos);
             if (numbered) {
@@ -1748,14 +1768,13 @@ private:
             if (op == S::Union || op == S::UnionAll) {
                 left.insert(left.end(), std::make_move_iterator(right.begin()), std::make_move_iterator(right.end()));
                 if (op == S::Union) {
-                    auto result = Distinct(unite(std::move(left)), pos);
+                    auto result = Distinct(unite(std::move(left)), pos, true);
                     left.clear(); left.push_back(std::move(result));
                 }
                 continue;
             }
             const bool all = op == S::IntersectAll || op == S::ExceptAll;
             auto lhs = unite(std::move(left)), rhs = unite(std::move(right));
-            if (!all) lhs = Distinct(std::move(lhs), pos);
             const auto lhsKeys = keys(lhs, all), rhsKeys = keys(rhs, all);
             std::optional<TExprId> predicate;
             for (std::size_t i = 0; i < lhsKeys.size(); ++i) {
@@ -1765,7 +1784,9 @@ private:
             TRelation join{ERelation::Join, pos}; join.Inputs = {lhs.Root, rhs.Root}; join.Predicate = predicate;
             join.JoinKind = op == S::Intersect || op == S::IntersectAll ? EJoinKind::LeftSemi : EJoinKind::LeftOnly;
             join.Columns = Program.Relations[lhs.Root].Columns;
-            lhs.Root = Relation(std::move(join)); left.clear(); left.push_back(std::move(lhs));
+            lhs.Root = Relation(std::move(join));
+            if (!all) lhs = Distinct(std::move(lhs), pos, true);
+            left.clear(); left.push_back(std::move(lhs));
         }
         if (stack.size() != 1 || next != inputs.size()) throw std::logic_error("unbalanced native set expression");
         auto result = unite(std::move(stack.back()));

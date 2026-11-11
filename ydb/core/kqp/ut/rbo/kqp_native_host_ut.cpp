@@ -4462,7 +4462,9 @@ $round = ($x,$y) -> {return $x;};
                 "SELECT id FROM `/Root/SetLeft` AS a WHERE EXISTS(SELECT v FROM `/Root/SetRight` AS b WHERE b.v = a.v INTERSECT ALL SELECT v FROM `/Root/SetRight`) ORDER BY id",
                 "SELECT * FROM (SELECT 1 AS z UNION ALL SELECT 2 AS a UNION ALL SELECT 3 AS z) AS q ORDER BY z, a",
                 "SELECT * FROM (SELECT 1 AS z, 2 AS a UNION ALL SELECT 3 AS z, 4 AS b) AS q ORDER BY z, a, b",
-                "SELECT NULL AS v INTERSECT SELECT NULL AS v ORDER BY v"}) {
+                "SELECT NULL AS v INTERSECT SELECT NULL AS v ORDER BY v",
+                "SELECT z, a FROM (SELECT 1 AS z, 2 AS a INTERSECT SELECT 2 AS a, 1 AS z "
+                    "INTERSECT SELECT 1 AS z, 2 AS a) AS q"}) {
             // Sort outside a locally limited operand as well, so comparison
             // does not depend on execution order of the union's branches.
             TString query(sql);
