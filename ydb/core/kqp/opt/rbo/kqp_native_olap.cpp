@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NKikimr::NKqp {
 namespace NDetail {
@@ -162,6 +163,75 @@ bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFro
         if (quote) { if (c == quote) quote = 0; }
         else if (c == '\'' || c == '"') quote = c;
         else if (c == '*') return false;
+    }
+    return true;
+}
+
+bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root, bool allowScalarApply) {
+    if (!CanLowerNativeOlapPredicate(arena, root, allowScalarApply)) return false;
+    const auto comparison = [](O op) {
+        return (op >= O::Equal && op <= O::GreaterEqual) ||
+            op == O::Contains || op == O::StartsWith || op == O::EndsWith;
+    };
+    const auto boolLiteral = [](const NFrontend::TExprNode& node) {
+        return node.Op == O::Literal && node.Type.Kind == K::Bool && std::holds_alternative<bool>(node.Value);
+    };
+    // The old collector distinguishes complete predicates from comparison
+    // operands. In particular a Boolean member is an operand, not an admitted
+    // predicate by itself. Storage execution capability must not broaden that
+    // optimizer policy. IDs plus use context bound traversal of shared DAGs.
+    std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, true}};
+    std::unordered_set<std::uint64_t> visited;
+    while (!pending.empty()) {
+        const auto [id, predicate] = pending.back(); pending.pop_back();
+        if (!visited.insert((std::uint64_t{id} << 1) | predicate).second) continue;
+        const auto& node = arena[id];
+        bool childPredicates = false;
+        if (OlapIdentityConversion(arena, node)) childPredicates = predicate;
+        else if (predicate) {
+            if (comparison(node.Op)) { /* Comparison operands are scalar values. */ }
+            else {
+                switch (node.Op) {
+                    case O::Literal: if (!boolLiteral(node)) return false; break;
+                    case O::IsNull: case O::IsNotNull:
+                        if (arena[node.Arguments[0]].Op != O::Column) return false;
+                        break;
+                    case O::Not: case O::And: case O::Or: childPredicates = true; break;
+                    case O::Coalesce:
+                        if (!allowScalarApply && (node.Arguments.size() != 2 ||
+                            !comparison(arena[node.Arguments[0]].Op) || !boolLiteral(arena[node.Arguments[1]]))) return false;
+                        childPredicates = true;
+                        break;
+                    case O::If: case O::OptionalWrap:
+                        if (!allowScalarApply) return false;
+                        childPredicates = true;
+                        break;
+                    case O::Like: case O::ILike: if (!allowScalarApply) return false; break;
+                    default: return false;
+                }
+            }
+        } else {
+            switch (node.Op) {
+                case O::Literal: case O::Column: case O::Parameter: break;
+                case O::OptionalWrap: continue;
+                case O::If:
+                    for (const auto branch : {1u, 2u}) {
+                        const auto& value = arena[node.Arguments[branch]];
+                        if (value.Op == O::Literal && std::holds_alternative<std::monostate>(value.Value)) return false;
+                    }
+                    [[fallthrough]];
+                case O::Coalesce:
+                    if (!allowScalarApply) return false;
+                    // The collector admits these scalar forms directly. The
+                    // capability check above still validates every descendant.
+                    continue;
+                case O::Convert: case O::Cast: if (!allowScalarApply) return false; break;
+                case O::Negate: case O::Abs: case O::Length:
+                case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo: break;
+                default: return false;
+            }
+        }
+        for (const auto arg : node.Arguments) pending.emplace_back(arg, childPredicates);
     }
     return true;
 }

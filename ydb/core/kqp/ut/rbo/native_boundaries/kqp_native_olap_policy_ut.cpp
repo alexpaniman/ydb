@@ -41,7 +41,9 @@ Y_UNIT_TEST_SUITE(KqpNativeOlapPolicy) {
                 NOpt::TOLAPPredicateNode collected;
                 NOpt::CollectPredicates(NNodes::TExprBase(legacy), collected, row.Get(), rowType, {apply, false});
                 const bool expected = apply ? collected.CanBePushedApply : collected.CanBePushed;
-                const bool actual = CanLowerNativeOlapPredicate(arena, predicate, apply);
+                const bool actual = CanPushNativeOlapPredicate(arena, predicate, apply);
+                UNIT_ASSERT_VALUES_EQUAL_C(CanLowerNativeOlapPredicate(arena, predicate, apply), actual,
+                    type.ToString() << " " << callable << " scalarApply=" << apply);
                 if (actual != expected) mismatches += TStringBuilder() << type.ToString() << " " << callable
                     << " same=" << same << " scalarApply=" << apply << " native=" << actual << " legacy=" << expected << '\n';
                 if (actual && expected) {

@@ -65,7 +65,7 @@ TIntrusivePtr<IOperator> TPushOlapFilterRule::SimpleMatchAndApply(const TIntrusi
     for (const auto& term : filter->GetFilterExpression().SplitConjunct()) {
         // The checked-expression guard above makes reordering these total
         // conjuncts safe, including a pushable term after a compute term.
-        if (CanLowerNativeOlapPredicate(*term.GetNativeArena(), term.GetNativeRoot(), ctx.KqpCtx.Config->GetEnableOlapScalarApply())) pushed.push_back(term);
+        if (CanPushNativeOlapPredicate(*term.GetNativeArena(), term.GetNativeRoot(), ctx.KqpCtx.Config->GetEnableOlapScalarApply())) pushed.push_back(term);
         else remaining.push_back(term);
     }
     if (pushed.empty()) return input;

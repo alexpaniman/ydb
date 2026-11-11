@@ -9,6 +9,10 @@ namespace NKikimr::NKqp {
 // emitter share this contract without constructing backend expressions.
 bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, bool allowScalarApply = false);
+// Preserve the existing collector's predicate/operand admission rules in
+// addition to checking whether native emission can execute the expression.
+bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
+    NFrontend::TExprId root, bool allowScalarApply = false);
 bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
 
 namespace NDetail {
