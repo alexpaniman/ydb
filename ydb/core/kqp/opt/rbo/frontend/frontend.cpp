@@ -2090,6 +2090,7 @@ private:
                 auto arg = Expr(syntax.Arguments[0], context);
                 if (syntax.Text == "+") { if (!arena[arg].Type.IsNumeric()) throw TFrontendError(syntax.Position, "unary + expects a number"); result = arg; }
                 else if (syntax.Text == "-") result = arena.Unary(EOpcode::Negate, arg, syntax.Position);
+                else if (syntax.Text == "~") result = arena.Unary(EOpcode::BitNot, arg, syntax.Position);
                 else if (syntax.Text == "NOT") result = arena.Unary(EOpcode::Not, arg, syntax.Position);
                 else if (syntax.Text == "IS NULL") result = arena.Unary(EOpcode::IsNull, arg, syntax.Position);
                 else if (syntax.Text == "IS NOT NULL") result = arena.Unary(EOpcode::IsNotNull, arg, syntax.Position);
@@ -2102,9 +2103,14 @@ private:
                     {"+", EOpcode::Add}, {"-", EOpcode::Subtract}, {"*", EOpcode::Multiply}, {"/", EOpcode::Divide}, {"%", EOpcode::Modulo},
                     {"=", EOpcode::Equal}, {"==", EOpcode::Equal}, {"!=", EOpcode::NotEqual}, {"<>", EOpcode::NotEqual},
                     {"<", EOpcode::Less}, {"<=", EOpcode::LessEqual}, {">", EOpcode::Greater}, {">=", EOpcode::GreaterEqual},
-                    {"AND", EOpcode::And}, {"OR", EOpcode::Or}, {"||", EOpcode::Concat}};
+                    {"AND", EOpcode::And}, {"OR", EOpcode::Or}, {"||", EOpcode::Concat},
+                    {"&", EOpcode::BitAnd}, {"|", EOpcode::BitOr}, {"^", EOpcode::BitXor},
+                    {"<<", EOpcode::ShiftLeft}, {">>", EOpcode::ShiftRight},
+                    {"IS NOT DISTINCT FROM", EOpcode::IsNotDistinct}};
                 if (syntax.Text == "LIKE" || syntax.Text == "ILIKE") result = NDetail::BuildLike(arena, left, right,
                     syntax.Arguments.size() == 3 ? std::optional{Expr(syntax.Arguments[2], context)} : std::nullopt, syntax.Position, syntax.Text == "LIKE");
+                else if (syntax.Text == "IS DISTINCT FROM")
+                    result = arena.Unary(EOpcode::Not, arena.Binary(EOpcode::IsNotDistinct, left, right, syntax.Position), syntax.Position);
                 else if (syntax.Text == "XOR") {
                     if (arena[left].Type.Kind != ETypeKind::Bool || arena[right].Type.Kind != ETypeKind::Bool) {
                         throw TFrontendError(syntax.Position, "XOR requires Boolean operands");

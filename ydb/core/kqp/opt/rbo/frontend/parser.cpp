@@ -730,8 +730,14 @@ private:
             if (op == "NOT") { negate = true; op = Upper(Tokens[Index++].Text); }
             if (op == "IS" || op == "ISNULL" || op == "NOTNULL") {
                 const bool notNull = op == "NOTNULL" || (op == "IS" && Take("NOT"));
-                if (op == "IS") Expect("NULL");
-                left = Add(ESyntaxKind::Unary, pos, notNull ? "IS NOT NULL" : "IS NULL", {left});
+                if (op == "IS" && Take("DISTINCT")) {
+                    Expect("FROM");
+                    left = Add(ESyntaxKind::Binary, pos, notNull ? "IS NOT DISTINCT FROM" : "IS DISTINCT FROM",
+                        {left, Expression(precedence + 1)});
+                } else {
+                    if (op == "IS") Expect("NULL");
+                    left = Add(ESyntaxKind::Unary, pos, notNull ? "IS NOT NULL" : "IS NULL", {left});
+                }
             } else if (op == "BETWEEN") {
                 const bool symmetric = Take("SYMMETRIC");
                 if (!symmetric) Take("ASYMMETRIC");

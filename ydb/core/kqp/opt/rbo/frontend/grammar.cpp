@@ -433,9 +433,12 @@ private:
                 std::vector<TSyntaxId> args{left, Expr(arguments[0])};
                 if (Has(condition, "ESCAPE")) args.push_back(Expr(arguments.at(1)));
                 left = Add(ESyntaxKind::Binary, condition, Upper(match->getText()), std::move(args));
+            } else if (auto* distinct = Child(condition, "distinct_from_op")) {
+                return Add(ESyntaxKind::Binary, condition, Has(distinct, "NOT") ? "IS NOT DISTINCT FROM" : "IS DISTINCT FROM",
+                    {left, Expr(arguments.at(0))});
             } else {
-                if (arguments.size() != 1 || Child(condition, "distinct_from_op"))
-                    Unsupported(condition, EFeature::Expression, "chained or null-safe equality");
+                if (arguments.size() != 1)
+                    Unsupported(condition, EFeature::Expression, "chained equality");
                 left = Add(ESyntaxKind::Binary, condition, Upper(condition->children.front()->getText()), {left, Expr(arguments[0])});
                 return left;
             }

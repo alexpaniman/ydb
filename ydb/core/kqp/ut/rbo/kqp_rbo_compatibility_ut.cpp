@@ -7,6 +7,7 @@
 #include <util/stream/file.h>
 #include <util/string/subst.h>
 #include <regex>
+#include <limits>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -14,6 +15,62 @@ namespace {
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    Y_UNIT_TEST(NativeBitwiseAndNullSafeResultsMatchLegacy) {
+        TParamsBuilder parameters;
+        auto& rows = parameters.AddParam("$rows").BeginList();
+        const TVector<std::optional<double>> values{std::nullopt, 0.0, -0.0, 2.0,
+            std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()};
+        ui32 id = 0;
+        for (const auto a : values) for (const auto b : values) {
+            rows.AddListItem().BeginStruct()
+                .AddMember("id").Uint32(id++)
+                .AddMember("a").OptionalDouble(a)
+                .AddMember("b").OptionalDouble(b)
+                .AddMember("f").OptionalFloat(b ? std::optional<float>{static_cast<float>(*b)} : std::nullopt)
+                .AddMember("x").OptionalInt64(a ? std::optional<i64>{-1} : std::nullopt)
+                .AddMember("u").OptionalUint64(a ? std::optional<ui64>{255} : std::nullopt)
+                .AddMember("n").Uint8((id % 3) == 0 ? 64 : (id % 3) == 1 ? 1 : 0)
+                .EndStruct();
+        }
+        rows.EndList().Build();
+        const auto params = parameters.Build();
+        const auto* query = R"(
+            DECLARE $rows AS List<Struct<id:Uint32,a:Double?,b:Double?,f:Float?,x:Int64?,u:Uint64?,n:Uint8>>;
+            SELECT id, a IS NOT DISTINCT FROM b AS same, a IS DISTINCT FROM b AS different,
+                a IS NOT DISTINCT FROM f AS mixed, a IS DISTINCT FROM f AS mixed_different,
+                x << n AS shl, x >> n AS shr, ~u AS inverted,
+                u & 3u AS masked, u | 3ul AS combined, u ^ 3u AS toggled
+            FROM AS_TABLE($rows) ORDER BY id;
+        )";
+        TString expected;
+        TVector<TString> expectedTypes;
+        for (const bool native : {false, true}) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            // The legacy compiler is an independent SQL semantics oracle.
+            config->SetEnableNewRBO(native);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+            const auto result = kikimr.GetQueryClient().ExecuteQuery(query, NQuery::TTxControl::NoTx(), params).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+            const auto& output = result.GetResultSet(0);
+            UNIT_ASSERT_VALUES_EQUAL(output.RowsCount(), values.size() * values.size());
+            TVector<TString> types;
+            for (const auto& column : output.GetColumnsMeta()) types.push_back(column.Type.ToString());
+            if (!native) {
+                expected = FormatResultSetYson(output);
+                expectedTypes = std::move(types);
+            } else {
+                UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(output), expected);
+                UNIT_ASSERT(types == expectedTypes);
+            }
+        }
+    }
+
     void RunSafeCastOptionalResults(bool PhysicalStagePeephole, bool native) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);

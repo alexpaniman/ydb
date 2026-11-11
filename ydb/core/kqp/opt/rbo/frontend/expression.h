@@ -110,6 +110,7 @@ enum class EOpcode : std::uint8_t {
     CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
     ListFromRange, ListConcat, ListLength, ListHasItems, Minimum, Maximum,
+    BitNot, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, IsNotDistinct,
 };
 
 struct TExprNode {

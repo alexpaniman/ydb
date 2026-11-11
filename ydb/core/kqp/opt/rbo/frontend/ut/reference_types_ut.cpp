@@ -62,6 +62,21 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(OperatorsAndNullablePredicates) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar})
+        for (const auto& [sql, type] : std::initializer_list<std::pair<std::string_view, std::string_view>>{
+                {"1 + 2l * 3 - 4", "Int64"}, {"+1", "Int32"}, {"~1u", "Uint32"},
+                {"7u & 3u | 1u", "Uint32"}, {"1u << 2u", "Uint32"},
+                {"TRUE AND NOT FALSE OR FALSE XOR TRUE", "Bool"},
+                {"1 < 2", "Bool"}, {"1 <= 2 AND 3 >= 2", "Bool"}, {"1 != 2", "Bool"},
+                {"NULL IS NULL", "Bool"}, {"NULL IS NOT NULL", "Bool"},
+                {"NULL IS DISTINCT FROM 1", "Bool"}, {"NULL IS NOT DISTINCT FROM NULL", "Bool"},
+                {"Just(1) = 2", "Bool?"}, {"'a' || 'b'", "String"}, {"NULL ?? 1", "Int32"}}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT " + std::string(sql)); f.Types({type});
+        }
+    }
+
     Y_UNIT_TEST(CaseBetweenAndIn) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             for (const auto& [sql, type, value] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view>>{

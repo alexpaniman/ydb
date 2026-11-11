@@ -238,6 +238,12 @@ Scalar types include Boolean, signed/unsigned integers, Float/Double, String/Utf
 Date/Datetime/Timestamp/Interval, Decimal, Json/JsonDocument and NULL. Explicit
 nested optional casts, Just and Unwrap preserve outer absence versus inner NULL;
 general arithmetic and comparison on nested optionals are not admitted.
+Bitwise operations require unsigned integers and promote to the widest operand.
+Shifts consume a required Uint8 count, reinterpret signed inputs as unsigned,
+and return zero when the count reaches the input width. Null-safe equality has
+a required Boolean result; matching scalar types equate NaNs, while mixed types
+retain ordinary comparison semantics. These rules are native construction and
+execution contracts, with direct runtime and legacy SQL parity checks.
 Extended Date32/Datetime64/Timestamp64/Interval64 and Uuid are native types.
 `RandomUuid(dependencies)` and `RandomNumber(dependencies)` retain their runtime
 dependencies and cannot fold. `YQL::RandomUuid()` and `YQL::RandomNumber()` are

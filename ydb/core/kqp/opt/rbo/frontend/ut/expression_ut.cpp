@@ -22,6 +22,84 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(BitwiseWidthsShiftsAndNullsSurviveNativeTransforms) {
+        for (const auto kind : {K::Int8, K::Int16, K::Int32, K::Int64, K::Uint8, K::Uint16, K::Uint32, K::Uint64}) {
+            TExpressionArena arena;
+            const TType input{kind, true};
+            const auto column = arena.Column(0, input);
+            const auto count = arena.Literal({K::Uint8}, std::uint64_t{1});
+            for (const auto op : {O::ShiftLeft, O::ShiftRight}) {
+                const auto root = arena.Binary(op, column, count);
+                UNIT_ASSERT(arena[root].Type.IsIntegral() && !arena[root].Type.IsSigned());
+                UNIT_ASSERT_VALUES_EQUAL(arena[root].Type.OptionalDepth, 1);
+                const auto literal = arena.Literal(input, input.IsSigned() ? TScalar{std::int64_t{-1}} : TScalar{std::uint64_t{255}});
+                const auto rewritten = arena.RewriteColumns(root, [&](auto, auto, auto, auto) { return literal; });
+                const auto value = Evaluate(arena, rewritten);
+                const auto folded = arena.FoldConstants(std::span{&rewritten, 1}).front();
+                UNIT_ASSERT(arena[folded].Op == O::Literal);
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(value));
+                TExpressionArena other;
+                const auto imported = other.Import(arena, root, [&](auto, auto type, auto pos) {
+                    return other.Literal(type, arena[literal].Value, pos);
+                });
+                UNIT_ASSERT(other[imported].Type == arena[root].Type);
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(other, imported)), FormatValue(value));
+                const auto absent = arena.Binary(op, arena.Literal(input, {}), count);
+                UNIT_ASSERT(Evaluate(arena, absent).IsNull());
+                const auto overwide = arena.Binary(op, literal, arena.Literal({K::Uint8}, std::uint64_t{64}));
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(arena, overwide).Data), 0);
+            }
+            if (!input.IsSigned()) {
+                const auto one = arena.Literal(input, std::uint64_t{1});
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(arena,
+                    arena.Binary(O::ShiftLeft, one, count)).Data), 2);
+                const auto three = arena.Literal({K::Uint64}, std::uint64_t{3});
+                for (const auto& [op, expected] : {std::pair{O::BitAnd, 1u}, {O::BitOr, 3u}, {O::BitXor, 2u}}) {
+                    const auto root = arena.Binary(op, one, three);
+                    UNIT_ASSERT(arena[root].Type == (TType{K::Uint64, true}));
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(arena, root).Data), expected);
+                }
+            }
+        }
+        TExpressionArena arena;
+        const auto signedValue = arena.Literal({K::Int32}, std::int64_t{-1});
+        const auto unsignedValue = arena.Literal({K::Uint32}, std::uint64_t{1});
+        UNIT_ASSERT_EXCEPTION(arena.Unary(O::BitNot, signedValue), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Binary(O::BitAnd, signedValue, unsignedValue), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Binary(O::ShiftLeft, unsignedValue, arena.Parameter("n", {K::Uint32})), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Binary(O::ShiftLeft, unsignedValue, arena.Literal({K::Uint32}, std::uint64_t{256})), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Binary(O::ShiftLeft, unsignedValue, arena.Parameter("n", {K::Uint8, true})), TFrontendError);
+    }
+
+    Y_UNIT_TEST(NullSafeEqualityRetainsNullAndUnorderedSemantics) {
+        for (const auto kind : {K::Float, K::Double, K::Decimal}) {
+            TExpressionArena arena;
+            const TType type = kind == K::Decimal ? TType{kind, true, 12, 2} : TType{kind, true};
+            const TScalar nan = kind == K::Decimal ? TScalar{TDecimal{TDecimal::NaN()}} : TScalar{std::numeric_limits<double>::quiet_NaN()};
+            const auto a = arena.Column(0, type), b = arena.Column(1, type);
+            const auto root = arena.Binary(O::IsNotDistinct, a, b);
+            UNIT_ASSERT(arena[root].Type == TType{K::Bool});
+            for (const bool leftPresent : {false, true}) for (const bool rightPresent : {false, true}) {
+                const auto bound = arena.RewriteColumns(root, [&](auto, auto column, auto inputType, auto) {
+                    return arena.Literal(inputType, (column == 0 ? leftPresent : rightPresent) ? nan : TScalar{});
+                });
+                UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, bound).Data), leftPresent == rightPresent);
+                const auto folded = arena.FoldConstants(std::span{&bound, 1}).front();
+                UNIT_ASSERT(arena[folded].Op == O::Literal);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded).Data), leftPresent == rightPresent);
+                TExpressionArena other;
+                const auto imported = other.Import(arena, bound, {});
+                UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(other, imported).Data), leftPresent == rightPresent);
+            }
+        }
+        TExpressionArena arena;
+        const auto f = arena.Literal({K::Float, true}, std::numeric_limits<double>::quiet_NaN());
+        const auto d = arena.Literal({K::Double, true}, std::numeric_limits<double>::quiet_NaN());
+        UNIT_ASSERT(!std::get<bool>(Evaluate(arena, arena.Binary(O::IsNotDistinct, f, d)).Data));
+        UNIT_ASSERT(std::get<bool>(Evaluate(arena, arena.Binary(O::IsNotDistinct, arena.Null(), arena.Null())).Data));
+        UNIT_ASSERT(!std::get<bool>(Evaluate(arena, arena.Binary(O::IsNotDistinct, arena.Null(), d)).Data));
+    }
+
     Y_UNIT_TEST(ListMetadataAndScalarExtremaSurviveRewriteAndImport) {
         TExpressionArena arena;
         const auto begin = arena.Column(0, {K::Int32});

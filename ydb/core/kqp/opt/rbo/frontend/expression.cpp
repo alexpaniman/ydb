@@ -1394,6 +1394,9 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         }
         type = {K::Bool, type.OptionalDepth || type.Kind == K::Null};
         input = Convert(input, type, position);
+    } else if (op == O::BitNot) {
+        if (type.Kind == K::Null) return input;
+        if (!type.IsIntegral() || type.IsSigned()) Fail(position, "Bitwise operations require unsigned integers");
     } else if (op == O::Negate || op == O::Abs) {
         if (!type.IsNumeric() && !type.IsInterval()) {
             Fail(position, "Unary arithmetic expects a number");
@@ -1452,6 +1455,50 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         throw TUnsupportedFeature(EFeature::Expression, position, "collection binary operation is outside the native scalar profile");
     if (leftType.Kind == K::Calendar || rightType.Kind == K::Calendar)
         throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime operations");
+    if (op == O::IsNotDistinct) {
+        if (leftType.Kind == K::Null) return Unary(O::IsNull, right, position);
+        if (rightType.Kind == K::Null) return Unary(O::IsNull, left, position);
+        if (leftType.Required() == rightType.Required()) {
+            // Same-type SQL null-safe equality also equates NaNs. Keep this
+            // distinct from ordinary equality, including after a DAG rewrite.
+            const auto common = CommonType(leftType, rightType, position);
+            left = Convert(left, common, position);
+            right = Convert(right, common, position);
+            return Append({op, {K::Bool}, position, {left, right}, {}, {}, 0});
+        }
+        // Mixed scalar types retain ordinary comparison semantics (including
+        // unordered numeric values), with a required result for absent inputs.
+        const auto equal = Binary(O::Equal, left, right, position);
+        const auto absent = Binary(O::And, Unary(O::IsNull, left, position), Unary(O::IsNull, right, position), position);
+        const TExprId alternatives[]{equal, absent};
+        return Coalesce(alternatives, position);
+    }
+    if (op == O::ShiftLeft || op == O::ShiftRight) {
+        if (leftType.Kind == K::Null) return left;
+        if (!leftType.IsIntegral()) Fail(position, "Shifts require an integer input");
+        right = Convert(right, {K::Uint8}, position);
+        auto result = leftType;
+        switch (result.Kind) {
+            case K::Int8: result.Kind = K::Uint8; break;
+            case K::Int16: result.Kind = K::Uint16; break;
+            case K::Int32: result.Kind = K::Uint32; break;
+            case K::Int64: result.Kind = K::Uint64; break;
+            default: break;
+        }
+        return Append({op, result, position, {left, right}, {}, {}, 0});
+    }
+    if (op == O::BitAnd || op == O::BitOr || op == O::BitXor) {
+        if (leftType.Kind == K::Null || rightType.Kind == K::Null) return Null(position);
+        if (!leftType.IsIntegral() || leftType.IsSigned() || !rightType.IsIntegral() || rightType.IsSigned())
+            Fail(position, "Bitwise operations require unsigned integers");
+        const auto common = CommonType(leftType, rightType, position);
+        auto leftTarget = common, rightTarget = common;
+        leftTarget.OptionalDepth = leftType.OptionalDepth;
+        rightTarget.OptionalDepth = rightType.OptionalDepth;
+        left = Convert(left, leftTarget, position);
+        right = Convert(right, rightTarget, position);
+        return Append({op, common, position, {left, right}, {}, {}, 0});
+    }
     if ((op == O::Add || op == O::Subtract) && IsDate(leftType.Kind) && rightType.IsInterval()) {
         return Append({op, leftType.Optional(), position, {left, right}, {}, {}, 0});
     }
@@ -2388,6 +2435,16 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
     if (node.Op == O::StablePickle) {
         return {node.Type, StablePickle(argument(0))};
     }
+    if (node.Op == O::IsNotDistinct) {
+        const auto& left = argument(0);
+        const auto& right = argument(1);
+        if (left.IsNull() || right.IsNull()) return {node.Type, left.IsNull() && right.IsNull()};
+        if (const auto* a = std::get_if<double>(&left.Data)) {
+            const auto b = std::get<double>(right.Data);
+            return {node.Type, *a == b || (std::isnan(*a) && std::isnan(b))};
+        }
+        return {node.Type, left.Data == right.Data};
+    }
     for (auto id : node.Arguments) {
         if (values[id]->IsNull()) {
             return NullValue(node.Type);
@@ -2424,6 +2481,17 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
     }
     if (node.Op == O::Not) {
         return {node.Type, !std::get<bool>(left.Data)};
+    }
+    if (node.Op == O::BitNot) return {node.Type, WrapInteger(~std::get<std::uint64_t>(left.Data), node.Type)};
+    if (node.Op == O::ShiftLeft || node.Op == O::ShiftRight) {
+        const auto bits = std::get<std::uint64_t>(argument(1).Data);
+        const auto input = std::get<std::uint64_t>(WrapInteger(static_cast<unsigned __int128>(*IntegralValue(left)), node.Type));
+        return {node.Type, WrapInteger(bits >= static_cast<unsigned>(Width(node.Type.Kind)) ? 0 :
+            node.Op == O::ShiftLeft ? input << bits : input >> bits, node.Type)};
+    }
+    if (node.Op == O::BitAnd || node.Op == O::BitOr || node.Op == O::BitXor) {
+        const auto a = std::get<std::uint64_t>(left.Data), b = std::get<std::uint64_t>(argument(1).Data);
+        return {node.Type, node.Op == O::BitAnd ? a & b : node.Op == O::BitOr ? a | b : a ^ b};
     }
     if (node.Op == O::Length) {
         return {node.Type, static_cast<std::uint64_t>(std::get<std::string>(left.Data).size())};

@@ -570,6 +570,14 @@ private:
             case O::Cast: return Cast(args[0], Arena[node.Arguments[0]].Type, type);
             case O::Negate: return Call("Minus", std::move(args), type);
             case O::Not: return Call("Not", std::move(args), type);
+            case O::BitNot: return Call("BitNot", std::move(args), type);
+            case O::BitAnd: return Call("BitAnd", std::move(args), type);
+            case O::BitOr: return Call("BitOr", std::move(args), type);
+            case O::BitXor: return Call("BitXor", std::move(args), type);
+            case O::ShiftLeft: case O::ShiftRight:
+                if (types[0].IsSigned()) args[0] = Call("Convert", {args[0], Type(type.Required())}, type);
+                return Call(node.Op == O::ShiftLeft ? "ShiftLeft" : "ShiftRight", std::move(args), type);
+            case O::IsNotDistinct: return Call("AggrEquals", std::move(args), type);
             case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo: {
                 if (type.Kind == K::Decimal && (node.Op == O::Multiply || node.Op == O::Divide || node.Op == O::Modulo))
                     return Call(node.Op == O::Multiply ? "DecimalMul" : node.Op == O::Divide ? "DecimalDiv" : "DecimalMod", std::move(args), type);

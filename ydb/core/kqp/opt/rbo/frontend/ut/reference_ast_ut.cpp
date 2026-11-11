@@ -24,6 +24,29 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(Predicates) {
+        const auto* sql = R"(SELECT x NOT IN (1, 2), x NOT BETWEEN SYMMETRIC 1 AND 3,
+            x IS NOT NULL, x IS NOT DISTINCT FROM y, name NOT LIKE 'a%' ESCAPE '!';)";
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)));
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(sql, grammar);
+            const auto& in = Projection(syntax, 0);
+            UNIT_ASSERT(in.Kind == ESyntaxKind::Unary && in.Text == "NOT");
+            UNIT_ASSERT(Child(syntax, in, 0).Kind == ESyntaxKind::In);
+            UNIT_ASSERT_VALUES_EQUAL(Child(syntax, in, 0).Arguments.size(), 3);
+            const auto& between = Projection(syntax, 1);
+            UNIT_ASSERT(between.Kind == ESyntaxKind::Between && between.Text == "NOT BETWEEN SYMMETRIC");
+            UNIT_ASSERT_VALUES_EQUAL(Child(syntax, between, 1).Text, "1");
+            UNIT_ASSERT_VALUES_EQUAL(Child(syntax, between, 2).Text, "3");
+            UNIT_ASSERT_VALUES_EQUAL(Projection(syntax, 2).Text, "IS NOT NULL");
+            UNIT_ASSERT_VALUES_EQUAL(Projection(syntax, 3).Text, "IS NOT DISTINCT FROM");
+            const auto& like = Projection(syntax, 4);
+            UNIT_ASSERT(like.Kind == ESyntaxKind::Unary && like.Text == "NOT");
+            UNIT_ASSERT_VALUES_EQUAL(Child(syntax, like, 0).Text, "LIKE");
+            UNIT_ASSERT_VALUES_EQUAL(Child(syntax, Child(syntax, like, 0), 2).Text, "!");
+        }
+    }
+
     Y_UNIT_TEST(NamedPreambleAndLambdaBodies) {
         const auto* sql = "$f = ($x, $y) -> { $n = $x + 1; return $n + $y; }; "
             "$g = () -> (42); $q = SELECT $f(id, 2) AS k FROM t; "
