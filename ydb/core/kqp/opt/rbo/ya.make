@@ -10,6 +10,7 @@ SRCS(
     kqp_native_write_preparation.cpp
     kqp_native_types.cpp
     kqp_native_olap.cpp
+    kqp_native_range_bounds.cpp
     kqp_subplan_value.cpp
     kqp_rbo_table.cpp
     kqp_expression.cpp

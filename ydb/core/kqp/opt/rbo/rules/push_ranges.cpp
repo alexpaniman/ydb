@@ -1,10 +1,10 @@
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_utils.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_range_bounds.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
 
 #include <utility>
-#include <cmath>
 #include <limits>
 
 namespace NKikimr::NKqp {
@@ -201,103 +201,6 @@ TVector<TString> BuildIndexReadColumns(const TVector<TString>& pkColumns, const 
     return result;
 }
 
-NFrontend::TExprId StripNativeOptionalLift(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id) {
-    using O = NFrontend::EOpcode;
-    while (arena[id].Op == O::Convert && arena[id].Type.Required() == arena[arena[id].Arguments[0]].Type.Required()) {
-        id = arena[id].Arguments[0];
-    }
-    return id;
-}
-
-bool HasUnorderedNativeKeys(NFrontend::TType type) {
-    using K = NFrontend::ETypeKind;
-    return type.Kind == K::Float || type.Kind == K::Double || type.Kind == K::Decimal;
-}
-
-// NaN is the largest storage key, but is unordered in SQL comparisons. A
-// parameter bound therefore needs a native validity condition. Comparisons
-// against absent parameters are UNKNOWN and produce no range. IS NULL points
-// bypass this check because they explicitly select the finite NULL storage key.
-std::optional<NFrontend::TExprId> NativeBoundCondition(NFrontend::TExpressionArena& arena, NFrontend::TExprId value) {
-    using namespace NFrontend;
-    value = StripNativeOptionalLift(arena, value);
-    const auto& node = arena[value];
-    if (!HasUnorderedNativeKeys(node.Type)) {
-        if (node.Type.OptionalDepth) return arena.Unary(EOpcode::IsNotNull, value);
-        return {};
-    }
-    if (node.Op == EOpcode::Literal) {
-        if (std::holds_alternative<std::monostate>(node.Value)) return {};
-        const bool nan = node.Type.Kind == ETypeKind::Decimal
-            ? std::get<TDecimal>(node.Value).Coefficient == TDecimal::NaN() : std::isnan(std::get<double>(node.Value));
-        if (!nan) return {};
-        return arena.Literal({ETypeKind::Bool}, false);
-    }
-    const auto valid = arena.Binary(EOpcode::Equal, value, value);
-    if (!arena[valid].Type.OptionalDepth) return valid;
-    const NFrontend::TExprId alternatives[]{valid, arena.Literal({ETypeKind::Bool}, false)};
-    return arena.Coalesce(alternatives);
-}
-
-// Storage bounds use the key's exact type. Integer comparisons in the native
-// IR compare mathematical values across widths/signedness: never round them
-// through Double or narrow an out-of-range value into the key domain.
-template <typename T>
-bool FitsNativeKey(const NFrontend::TScalar& value) {
-    if (const auto* v = std::get_if<std::int64_t>(&value)) return std::in_range<T>(*v);
-    if (const auto* v = std::get_if<std::uint64_t>(&value)) return std::in_range<T>(*v);
-    return false;
-}
-
-std::optional<NFrontend::TExprId> NativeBoundValue(const TExpression& expression, NFrontend::TType keyType) {
-    using namespace NFrontend;
-    using K = ETypeKind;
-    auto& arena = *expression.GetNativeArena();
-    auto id = StripNativeOptionalLift(arena, expression.GetNativeRoot());
-    const auto& node = arena[id];
-    keyType = keyType.Required();
-    if (node.Op != EOpcode::Literal) {
-        if (!node.Repeatable || !expression.GetRawInputIUs().Empty()) return {};
-        const auto type = node.Type;
-        const auto position = node.Position;
-        if (type.OptionalDepth > 1) return {};
-        // A total integer widening remains a native scalar bound. Emission
-        // materializes computed bounds using the existing range transaction.
-        if (type.Required() != keyType && !(type.IsIntegral() && keyType.IsIntegral() &&
-            CommonType(type.Required(), keyType, position) == keyType)) return {};
-        // The range's validity condition guards this unwrap. Both range and
-        // lookup emission evaluate values only in the condition's true branch.
-        if (type.OptionalDepth) id = arena.Call("Unwrap", std::span{&id, 1}, position);
-        return arena.Convert(id, keyType, position);
-    }
-    if (std::holds_alternative<std::monostate>(node.Value)) return {};
-    if (node.Type == keyType) return id;
-    if (node.Type.Required() == keyType || (node.Type.Kind == K::Utf8 && keyType.Kind == K::String))
-        return arena.Literal(keyType, node.Value, node.Position);
-    if (!node.Type.IsIntegral() || !keyType.IsIntegral()) return {};
-    bool fits = false;
-    switch (keyType.Kind) {
-        case K::Int8: fits = FitsNativeKey<i8>(node.Value); break;
-        case K::Int16: fits = FitsNativeKey<i16>(node.Value); break;
-        case K::Int32: fits = FitsNativeKey<i32>(node.Value); break;
-        case K::Int64: fits = FitsNativeKey<i64>(node.Value); break;
-        case K::Uint8: fits = FitsNativeKey<ui8>(node.Value); break;
-        case K::Uint16: fits = FitsNativeKey<ui16>(node.Value); break;
-        case K::Uint32: fits = FitsNativeKey<ui32>(node.Value); break;
-        case K::Uint64: fits = FitsNativeKey<ui64>(node.Value); break;
-        default: break;
-    }
-    if (!fits) return {};
-    if (keyType.IsSigned()) {
-        const auto value = std::holds_alternative<std::int64_t>(node.Value) ? std::get<std::int64_t>(node.Value)
-            : static_cast<std::int64_t>(std::get<std::uint64_t>(node.Value));
-        return arena.Literal(keyType, value, node.Position);
-    }
-    const auto value = std::holds_alternative<std::uint64_t>(node.Value) ? std::get<std::uint64_t>(node.Value)
-        : static_cast<std::uint64_t>(std::get<std::int64_t>(node.Value));
-    return arena.Literal(keyType, value, node.Position);
-}
-
 // Distribute Boolean branches only within a bounded amount of work. If the
 // expansion is too large, the caller can still extract ordinary top-level
 // conjuncts and retain the original Boolean predicate in compute.
@@ -386,12 +289,12 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         auto op = (*arena)[id].Op;
         const bool nullPoint = op == O::IsNull;
         if (!nullPoint && op != O::Equal && op != O::Less && op != O::LessEqual && op != O::Greater && op != O::GreaterEqual) continue;
-        auto column = StripNativeOptionalLift(*arena, (*arena)[id].Arguments[0]);
+        auto column = StripNativeRangeKeyPromotion(*arena, (*arena)[id].Arguments[0], op);
         auto value = nullPoint ? column : (*arena)[id].Arguments[1];
         if ((*arena)[column].Op != O::Column) {
             if (nullPoint) continue;
             std::swap(column, value);
-            column = StripNativeOptionalLift(*arena, column);
+            column = StripNativeRangeKeyPromotion(*arena, column, op);
             switch (op) {
                 case O::Less: op = O::Greater; break;
                 case O::LessEqual: op = O::GreaterEqual; break;
@@ -402,22 +305,20 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         }
         if ((*arena)[column].Op != O::Column) continue;
         const auto keyType = (*arena)[column].Type;
-        // Identity/optional lifts are the only column casts stripped here;
-        // integer literals alone may change width exactly. Unordered keys get
-        // explicit native bounds and validity conditions below.
+        // Key promotions, scalar bound conversion and validity share the
+        // native adapter; the rule selects keys and indexes as before.
         if (!keyType.IsIntegral() && !keyType.IsString() && keyType.Kind != K::Bool && keyType.Kind != K::Date &&
             keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval &&
             keyType.Kind != K::Date32 && keyType.Kind != K::Datetime64 && keyType.Kind != K::Timestamp64 &&
             keyType.Kind != K::Interval64 && keyType.Kind != K::Uuid && !HasUnorderedNativeKeys(keyType)) continue;
         // IS NULL is a finite NULL point, unlike comparison with NULL (UNKNOWN).
         const auto bound = nullPoint
-            ? (keyType.OptionalDepth ? std::optional{arena->Literal(keyType, {})} : std::nullopt)
-            : NativeBoundValue(TExpression::FromNative(arena, value, &props), keyType);
+            ? (keyType.OptionalDepth ? std::optional{TNativeRangeBound{arena->Literal(keyType, {}), {}, true}} : std::nullopt)
+            : BuildNativeRangeBound(TExpression::FromNative(arena, value, &props), keyType, op);
         if (!bound) continue;
         auto& conditions = branchKeys[branch][props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
         auto& slot = nullPoint || op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
-        if (!slot) slot = TCondition{i, *bound, nullPoint ? std::nullopt : NativeBoundCondition(*arena, value),
-            keyType, nullPoint || op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
+        if (!slot) slot = TCondition{i, bound->Value, bound->Validity, keyType, bound->Inclusive};
     }
     // Inspect the predicate once, then build each candidate from its physical
     // key order. Choosing an index does not require another typing/lowering pass.

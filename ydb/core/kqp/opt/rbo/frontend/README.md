@@ -142,6 +142,14 @@ runtime, including equal values from different computed expressions. Open upper 
 Double and Decimal stop before the NaN storage key. Physical emission constructs
 typed conditional lists directly. It does not use YQL range expansion helpers.
 Copying and expression visitors preserve these conditions with their bounds.
+`kqp_native_range_bounds` adapts scalar bounds to the storage key's exact type.
+Total integer conversions use domain containment; narrowing conversions use a
+safe cast and guarded endpoints, including strict comparisons at integer limits.
+Lossless integer-to-floating equality uses an exact round trip. Promotions that
+merge distinct keys retain scalar filtering: a single converted lookup point
+would lose matching rows near Float/Double precision limits. This is an explicit
+correctness exception to pre-migration range admission, covered by predicate and
+filter execution comparisons. The rule still owns key-prefix and index selection.
 
 Physical builders cross the boundary through `ExportNativeType`,
 `ExportOperatorType`, `ExportIUType`, `LowerTable`, and `LowerExpressionLambda`.

@@ -3130,7 +3130,7 @@ $round = ($x,$y) -> {return $x;};
             {"key IS NULL OR (key = 1 AND suffix IS NULL)", {0, 3}, true, "ORDER BY tag", 2},
             {"suffix < 5", {0, 1, 2, 4, 5, 6, 9, 10, 11, 12}, false},
             {"CAST(key AS Int32) = 1", {3, 4, 5, 6, 7, 8}, false},
-            {"key < 18446744073709551615ul", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, false},
+            {"key < 18446744073709551615ul", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
             {"key = 1 OR key = 2", {3, 4, 5, 6, 7, 8, 9}, true, "ORDER BY tag", 2},
             {"key < 0 OR key >= 3", {1, 10, 11, 12}, true, "ORDER BY tag", 2},
             {"key >= 3", {10, 11, 12}},
@@ -4888,6 +4888,84 @@ $round = ($x,$y) -> {return $x;};
                 const auto actual = Snapshot(session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync());
                 if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
                 ++index;
+            }
+        }
+    }
+
+    Y_UNIT_TEST(MixedNumericRangeFilteringMatchesPredicateEvaluation) {
+        TKikimrRunner runner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        auto client = runner.GetTableClient();
+        auto session = client.CreateSession().GetValueSync().GetSession();
+        struct TKeyType { const char* Name; __int128 Minimum; __int128 Maximum; };
+        const TKeyType keyTypes[]{
+            {"Int32", std::numeric_limits<i32>::min(), std::numeric_limits<i32>::max()},
+            {"Uint32", 0, std::numeric_limits<ui32>::max()},
+            {"Int64", std::numeric_limits<i64>::min(), std::numeric_limits<i64>::max()},
+            {"Uint64", 0, std::numeric_limits<ui64>::max()},
+        };
+        const TVector<std::pair<TString, TValue>> bounds{
+            {"Int64?", TValueBuilder().OptionalInt64(-1).Build()},
+            {"Int64?", TValueBuilder().OptionalInt64(std::numeric_limits<i64>::min()).Build()},
+            {"Int64?", TValueBuilder().OptionalInt64(std::numeric_limits<i64>::max()).Build()},
+            {"Uint64?", TValueBuilder().OptionalUint64(0).Build()},
+            {"Uint64?", TValueBuilder().OptionalUint64(ui64{1} << 63).Build()},
+            {"Uint64?", TValueBuilder().OptionalUint64(std::numeric_limits<ui64>::max()).Build()},
+            {"Float?", TValueBuilder().OptionalFloat(16777216.f).Build()},
+            {"Float?", TValueBuilder().OptionalFloat(std::numeric_limits<float>::quiet_NaN()).Build()},
+            {"Double?", TValueBuilder().OptionalDouble(16777216.).Build()},
+            {"Double?", TValueBuilder().OptionalDouble(9007199254740992.).Build()},
+            {"Double?", TValueBuilder().OptionalDouble(2147483647.5).Build()},
+            {"Double?", TValueBuilder().OptionalDouble(std::numeric_limits<double>::infinity()).Build()},
+            {"Int64?", TValueBuilder().OptionalInt64(std::nullopt).Build()},
+            {"Double?", TValueBuilder().OptionalDouble(std::nullopt).Build()},
+        };
+        for (const auto& keyType : keyTypes) {
+            const TString path = TStringBuilder() << "/Root/Range" << keyType.Name;
+            const auto created = session.ExecuteSchemeQuery(TStringBuilder() << "CREATE TABLE `" << path << "` (key "
+                << keyType.Name << ", tag Uint32 NOT NULL, PRIMARY KEY(key));").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TVector<__int128> keys{keyType.Minimum, keyType.Minimum + 1, keyType.Maximum - 1, keyType.Maximum,
+                -1, 0, 1, 16777215, 16777216, 16777217, 16777218,
+                __int128{9007199254740991LL}, __int128{9007199254740992LL}, __int128{9007199254740993LL}};
+            std::sort(keys.begin(), keys.end());
+            keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+            TValueBuilder rows;
+            rows.BeginList();
+            ui32 tag = 0;
+            const auto row = [&](std::optional<__int128> key) {
+                rows.AddListItem().BeginStruct().AddMember("tag").Uint32(tag++).AddMember("key");
+                const TString name = keyType.Name;
+                if (name == "Int32") rows.OptionalInt32(key ? std::optional<i32>{static_cast<i32>(*key)} : std::nullopt);
+                else if (name == "Uint32") rows.OptionalUint32(key ? std::optional<ui32>{static_cast<ui32>(*key)} : std::nullopt);
+                else if (name == "Int64") rows.OptionalInt64(key ? std::optional<i64>{static_cast<i64>(*key)} : std::nullopt);
+                else rows.OptionalUint64(key ? std::optional<ui64>{static_cast<ui64>(*key)} : std::nullopt);
+                rows.EndStruct();
+            };
+            row(std::nullopt);
+            for (const auto key : keys) if (key >= keyType.Minimum && key <= keyType.Maximum) row(key);
+            rows.EndList();
+            const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            for (const auto& [boundType, bound] : bounds)
+            for (const auto* op : {"=", "<", "<=", ">", ">="})
+            for (const bool computed : {false, true}) {
+                const TString predicate = TStringBuilder() << "key " << op << (computed ? " IF($choose, $bound, $other)" : " $bound");
+                const TString sql = TStringBuilder() << "PRAGMA YqlSelect='force'; DECLARE $bound AS " << boundType
+                    << "; DECLARE $other AS " << boundType << "; DECLARE $choose AS Bool; SELECT tag FROM `" << path
+                    << "` WHERE " << predicate << " ORDER BY tag; SELECT tag, COALESCE(" << predicate
+                    << ", false) AS matched FROM `" << path << "` ORDER BY tag;";
+                auto params = TParamsBuilder().AddParam("$bound", bound).AddParam("$other", bound)
+                    .AddParam("$choose").Bool(!computed).Build().Build();
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 2);
+                TVector<ui32> filtered, evaluated;
+                TResultSetParser selected(result.GetResultSet(0)), projected(result.GetResultSet(1));
+                while (selected.TryNextRow()) filtered.push_back(selected.ColumnParser("tag").GetUint32());
+                while (projected.TryNextRow()) if (projected.ColumnParser("matched").GetBool())
+                    evaluated.push_back(projected.ColumnParser("tag").GetUint32());
+                UNIT_ASSERT_VALUES_EQUAL_C(filtered, evaluated, sql);
             }
         }
     }

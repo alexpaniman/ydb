@@ -2199,8 +2199,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             if (present) UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(*arena,
                 guardedRange.Lower.Values.front().GetNativeRoot(), evaluation).Data), 42);
         }
-        check(arena->Binary(O::Equal, value, arena->Parameter("signed", {K::Int64})), false);
-        check(arena->Binary(O::Greater, value, arena->Literal({K::Int64}, std::int64_t{-1})), false);
+        check(arena->Binary(O::Equal, value, arena->Parameter("signed", {K::Int64})), true);
+        check(arena->Binary(O::Greater, value, arena->Literal({K::Int64}, std::int64_t{-1})), true);
         check(arena->Binary(O::Equal, value, arena->Null()), false);
         const auto equal = arena->Binary(O::Equal, value, param);
         const auto nullable = check(arena->Binary(O::Or, equal, arena->Unary(O::IsNull, value)), true);
