@@ -30,6 +30,39 @@ paths are normalized to `/Root/`; query logic is unchanged. The default paths
 for the external corpus and viewer match the original development workspace,
 and both can be overridden.
 
+The default corpus also includes the reference TPCH performance fixture's 13
+queries and its distinct Double/String schema (`tpch-perf`), for 6,992 queries
+in total.
+
+The imported `KqpNativeCompilationTime` tests preserve the reference's original
+22 TPCH, 89 TPCDS and 39 ClickBench timing cases. TPCH/TPCDS use row storage;
+ClickBench uses column storage. Each request checks that the SQL pragma disables
+CBO, both query caches are disabled, the native-required compilation succeeds,
+and exactly one new-RBO success is counted with no failures. Five warmups precede
+the measured requests. These reference lists supplement the full corpus above.
+Run the suites separately to avoid concurrent clusters affecting CPU samples:
+
+```bash
+~/projects/clang-balancer/balance ./ya make --build relwithdebinfo -tA \
+  ydb/core/kqp/ut/rbo -F 'KqpNativeCompilationTime::CompilationTimeBench_TPCH' \
+  --test-param ENABLE_PERF_COMPILATION=1 --test-param PERF_COMPILATION_ITERATIONS=2 \
+  2>&1 | tail
+```
+
+Replace `TPCH` with `TPCDS` or `CLICKBENCH` for the other workloads.
+`PERF_COMPILATION_QUERIES=1,5` selects cases within that workload;
+`PERF_COMPILATION_TRACE=1` exports request traces and checks native phase counts.
+The fixture measures only the native pipeline. Use the immutable runners above
+for revision comparisons.
+
+Run `KqpNativeReferenceParser::ParserDfaWarmup_TPCDS66` in `frontend/ut` with
+`--test-param ENABLE_PERF_PARSER=1` alone. It resets the shared grammar DFA on
+iterations 1 and 7, checks reuse during each warm sequence, and checks syntax
+against the handwritten parser. Its `native_parse_us` metric includes CST
+construction, native AST construction and CST release inside the parser boundary.
+It does not measure binding or RBO, and clearing the process-wide DFA must not
+overlap other parsing jobs.
+
 Each batch creates a local database, performs untraced warmup loops, and then
 records the measured loops in the same process. The driver alternates variant
 order between batches and runs one variant at a time. Both query caches, optimizer

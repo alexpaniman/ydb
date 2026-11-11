@@ -5,7 +5,10 @@
 #include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboAnsiLexer.h>
 #include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboAnsiParser.h>
 #include <library/cpp/testing/unittest/registar.h>
+#include <library/cpp/testing/common/env.h>
+#include <library/cpp/resource/resource.h>
 #include <array>
+#include <chrono>
 #include <future>
 using namespace NKikimr::NKqp::NFrontend;
 
@@ -47,6 +50,50 @@ void CheckProcessWideCaches() {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceParser) {
+    // Port of the reference's isolated cold/warm DFA experiment. The native
+    // parser owns CST construction, translation and destruction behind one
+    // boundary, so measure that complete boundary rather than exposing CSTs.
+    // Run alone: resetting the shared DFA is unsafe during another parse.
+    Y_UNIT_TEST(ParserDfaWarmup_TPCDS66) {
+        if (GetTestParam("ENABLE_PERF_PARSER").empty()) return;
+        const std::string sql = "PRAGMA ydb.CostBasedOptimizationLevel = '0';\n"
+            "$round = ($x,$y) -> {return $x;};\n"
+            "$to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };\n"
+            "$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };\n"
+            + std::string(NResource::Find("tpcds-q66"));
+        const auto expected = SyntaxFingerprint(Parse(sql));
+        using TClock = std::chrono::steady_clock;
+        std::size_t previousStates = 0;
+        Cout << "PERF_PARSER_HEADER,iteration,reset_dfa,dfa_before,dfa_after,native_parse_us" << Endl;
+        for (unsigned iteration = 1; iteration <= 12; ++iteration) {
+            antlr4::ANTLRInputStream input(sql);
+            NativeRboDefault::NativeRboDefaultLexer lexer(&input);
+            antlr4::CommonTokenStream tokens(&lexer);
+            NativeRboDefault::NativeRboDefaultParser parser(&tokens);
+            auto* simulator = parser.getInterpreter<antlr4::atn::ParserATNSimulator>();
+            const auto countStates = [&] {
+                std::size_t count = 0;
+                for (const auto& dfa : simulator->decisionToDFA) count += dfa.states.size();
+                return count;
+            };
+            const bool reset = iteration == 1 || iteration == 7;
+            if (reset) {
+                simulator->clearDFA();
+                lexer.getInterpreter<antlr4::atn::LexerATNSimulator>()->clearDFA();
+            }
+            const auto before = countStates();
+            UNIT_ASSERT_VALUES_EQUAL(before, reset ? 0 : previousStates);
+            const auto start = TClock::now();
+            const auto syntax = ParseGrammar(sql);
+            const auto elapsed = std::chrono::duration<double, std::micro>(TClock::now() - start).count();
+            previousStates = countStates();
+            UNIT_ASSERT(previousStates > 0);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(syntax), expected);
+            Cout << "PERF_PARSER," << iteration << ',' << reset << ',' << before << ',' << previousStates
+                << ',' << elapsed << Endl;
+        }
+    }
+
     Y_UNIT_TEST(ProcessWideDefaultDfaCache) {
         CheckProcessWideCaches<NativeRboDefault::NativeRboDefaultLexer, NativeRboDefault::NativeRboDefaultParser>();
     }
