@@ -1526,12 +1526,13 @@ private:
             const std::string_view sql(query.Text.data(), query.Text.size());
             auto syntax = [&] {
                 TCompileTraceScope phase(settings.CompileTrace, "Native parse");
-                return std::make_shared<F::TParsedQuery>(F::ParseNative(sql, options));
+                return F::ParseNative(sql, options);
             }();
-            const auto requests = [&] {
+            const auto discovery = [&] {
                 TCompileTraceScope phase(settings.CompileTrace, "Native table discovery");
-                return F::CollectTables(*syntax, options.Binding);
+                return F::DiscoverNative(std::move(syntax), std::move(options.Binding));
             }();
+            const auto requests = discovery.Tables();
             TVector<TFuture<IKikimrGateway::TTableMetadataResult>> loads;
             for (const auto& request : requests) {
                 IKikimrGateway::TLoadTableMetadataSettings loadSettings;
@@ -1547,9 +1548,10 @@ private:
             });
             auto wait = MakeIntrusive<TKqpFutureResult<TGenericResult>>(ready, ctx);
             return AsyncApplyResult<TGenericResult, TQueryResult>(wait,
-                [this, syntax, options, loads, requests, text = query.Text, parameters = query.ParameterTypes, queryType, settings, &ctx](TGenericResult&&) {
+                [this, discovery, loads, text = query.Text, parameters = query.ParameterTypes, queryType, settings, &ctx](TGenericResult&&) {
                 return CheckedProcessQuery(ctx, [&](TExprContext&) -> IAsyncQueryResultPtr {
                     try {
+                        const auto requests = discovery.Tables();
                         std::unordered_map<std::string, TKikimrTableMetadataPtr> metadata;
                         for (std::size_t i = 0; i < loads.size(); ++i) {
                             const auto& loaded = loads[i].GetValue();
@@ -1607,7 +1609,7 @@ private:
                         };
                         auto program = [&] {
                             TCompileTraceScope phase(settings.CompileTrace, "Native binding and scalar typing");
-                            return F::BindNative(*syntax, schema, options.Binding);
+                            return F::BindNative(discovery, schema);
                         }();
                         const auto explain = [&] {
                             TCompileTraceScope phase(settings.CompileTrace, "Native plan formatting");
@@ -1668,7 +1670,7 @@ private:
                         IKikimrQueryExecutor::TExecuteSettings execute;
                         auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(native), ctx, execute);
                         return AsyncApplyResult<TQueryResult, TQueryResult>(prepared,
-                            [this, text, explain, sqlVersion, generatedParser = syntax->UsedGeneratedParser](TQueryResult&& result) {
+                            [this, text, explain, sqlVersion, generatedParser = discovery.UsedGeneratedParser()](TQueryResult&& result) {
                             if (result.Success()) {
                                 FillColumnMeta(SessionCtx->Query().PreparingQuery->GetPhysicalQuery(), result);
                                 result.PreparingQuery = std::move(SessionCtx->Query().PreparingQuery);

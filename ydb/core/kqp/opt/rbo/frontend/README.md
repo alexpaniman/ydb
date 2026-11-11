@@ -20,8 +20,12 @@ SQL
 
 ## Boundaries and ownership
 
-`ParseNative`, `CollectTables`, and `BindNative` separate syntax from asynchronous
-catalog I/O. `CompileNative` combines them for callers with a synchronous catalog.
+`ParseNative`, `DiscoverNative`, and `BindNative` separate syntax from asynchronous
+catalog I/O. Discovery owns the syntax and binding settings, resolves global
+references and pragmas once, and identifies the required tables. Binding reuses
+that immutable resolution after metadata arrives; catalog schemas and local
+column bindings remain fresh for each compilation. `CompileNative` binds directly
+for callers with a synchronous catalog, without a table-discovery pass.
 The fast lexer borrows unchanged text during parsing and owns decoded escape
 values until parsing ends. The returned syntax owns all retained strings and
 remains valid after the SQL input and parser are released.
@@ -395,6 +399,11 @@ Standalone CLI `--bench N` includes parsing, binding, native checks and destruct
 it excludes asynchronous catalog I/O, RBO and backend compilation.
 `--bench-explain N` measures native plan formatting and destruction separately,
 after an untimed compile and formatting warmup.
+`--bench-discovery N` compares the owning discovery handoff with independent
+table discovery and binding in the same binary. It checks native plan equality,
+then alternates both paths each iteration, including parsing and destruction.
+This isolates discovery reuse from binary layout and host scheduling effects;
+whole-compiler timing still requires the host benchmarks.
 
 The `710eddcc4fa` compilation checkpoint covers 6,992 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and

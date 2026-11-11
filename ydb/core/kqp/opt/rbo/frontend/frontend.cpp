@@ -733,8 +733,9 @@ class TBinder {
     };
 
 public:
-    TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Values(syntax.Statements.size())
+    TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings,
+        const TGlobalBindings& bindings)
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(bindings), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
@@ -2579,7 +2580,7 @@ private:
     // One catalog snapshot per resolved path; source aliases own their
     // bindings, while repeated sources share the immutable column metadata.
     std::unordered_map<std::string, TTableSnapshot, TStringHash, std::equal_to<>> Tables;
-    TGlobalBindings Bindings;
+    const TGlobalBindings& Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
     std::vector<std::uint32_t> Canonical;
@@ -2599,7 +2600,8 @@ private:
 } // namespace
 
 TBoundProgram NDetail::Bind(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings) {
-    return TBinder(syntax, catalog, settings).Run();
+    const TGlobalBindings bindings(syntax, settings);
+    return TBinder(syntax, catalog, settings, bindings).Run();
 }
 
 TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catalog, const TBindSettings& bindSettings, const TParseSettings& parseSettings) {
@@ -2732,8 +2734,8 @@ void CheckProgram(const TBoundProgram& program) {
 
 class TTableCollector {
 public:
-    TTableCollector(const TParsedQuery& syntax, const TBindSettings& settings)
-        : Syntax(syntax), Settings(settings), Bindings(syntax, settings) {}
+    TTableCollector(const TParsedQuery& syntax, const TBindSettings& settings, const TGlobalBindings& bindings)
+        : Syntax(syntax), Settings(settings), Bindings(bindings) {}
     std::vector<TTableRequest> Run() {
         for (const auto& statement : Syntax.Statements) {
             if (statement.Kind == EStatementKind::Query) Select(*statement.Query);
@@ -2803,7 +2805,7 @@ private:
     }
     const TParsedQuery& Syntax;
     const TBindSettings& Settings;
-    TGlobalBindings Bindings;
+    const TGlobalBindings& Bindings;
     std::unordered_set<const TSelect*> Active;
     std::unordered_set<std::string> Seen;
     std::vector<TTableRequest> Tables;
@@ -2862,7 +2864,34 @@ TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings
 }
 
 std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBindSettings& settings) {
-    return TTableCollector(syntax, settings).Run();
+    const TGlobalBindings bindings(syntax, settings);
+    return TTableCollector(syntax, settings, bindings).Run();
+}
+
+struct TDiscoveredQuery::TImpl {
+    TImpl(TParsedQuery syntax, TBindSettings settings)
+        : Syntax(std::move(syntax)), Settings(std::move(settings)), Bindings(Syntax, Settings),
+          Tables(TTableCollector(Syntax, Settings, Bindings).Run()) {}
+
+    const TParsedQuery Syntax;
+    const TBindSettings Settings;
+    const TGlobalBindings Bindings;
+    const std::vector<TTableRequest> Tables;
+};
+
+TDiscoveredQuery DiscoverNative(TParsedQuery syntax, TBindSettings settings) {
+    CheckSyntax(syntax);
+    return TDiscoveredQuery(std::make_shared<TDiscoveredQuery::TImpl>(std::move(syntax), std::move(settings)));
+}
+
+std::span<const TTableRequest> TDiscoveredQuery::Tables() const { return Impl->Tables; }
+bool TDiscoveredQuery::UsedGeneratedParser() const { return Impl->Syntax.UsedGeneratedParser; }
+
+TCompiledProgram BindNative(const TDiscoveredQuery& query, const TTableResolver& catalog) {
+    const auto& data = *query.Impl;
+    auto program = TBinder(data.Syntax, catalog, data.Settings, data.Bindings).Run();
+    CheckProgram(program);
+    return TCompiledProgram(std::move(program));
 }
 
 TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatalogColumn> columns,
@@ -2883,7 +2912,8 @@ TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatal
     const TTableResolver noTables = [](std::string_view, TSourcePosition pos) -> TCatalogTable {
         throw TFrontendError(pos, "row expressions cannot read tables");
     };
-    auto [program, root] = TBinder(syntax, noTables, binding).RunExpression(parsed.Root, columns, target);
+    const TGlobalBindings bindings(syntax, binding);
+    auto [program, root] = TBinder(syntax, noTables, binding, bindings).RunExpression(parsed.Root, columns, target);
     CheckProgram(program);
     root = program.Expressions.FoldConstants(std::span<const TExprId>(&root, 1)).front();
     TRowExpression result{std::move(program.Expressions), root, {}, {}};

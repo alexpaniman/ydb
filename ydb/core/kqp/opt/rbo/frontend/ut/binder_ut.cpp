@@ -146,16 +146,69 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         };
         for (const auto& [sql, expected] : cases) {
             const auto parsed = ParseNative(sql, settings);
+            const auto discovery = DiscoverNative(ParseNative(sql, settings), settings.Binding);
             std::vector<std::string> discovered, resolved;
             for (const auto& request : CollectTables(parsed)) discovered.push_back(request.Name);
             UNIT_ASSERT_C(discovered == expected, sql);
-            const auto program = BindNative(parsed, [&](std::string_view name, TSourcePosition) {
+            std::vector<std::string> retained;
+            for (const auto& request : discovery.Tables()) retained.push_back(request.Name);
+            UNIT_ASSERT_C(retained == expected, sql);
+            const TTableResolver catalog = [&](std::string_view name, TSourcePosition) {
                 resolved.emplace_back(name);
                 return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
-            });
+            };
+            const auto program = BindNative(parsed, catalog);
             UNIT_ASSERT_C(resolved == expected, sql);
             UNIT_ASSERT_VALUES_EQUAL(program.Get().Results.size(), 1);
+            resolved.clear();
+            const auto reused = BindNative(discovery, catalog);
+            UNIT_ASSERT_C(resolved == expected, sql);
+            UNIT_ASSERT_VALUES_EQUAL_C(Explain(reused.Get()), Explain(program.Get()), sql);
         }
+    }
+
+    Y_UNIT_TEST(DiscoveryOwnsScopeButDoesNotCacheCatalogSchemas) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            const auto discovery = [parser] {
+                TCompilerSettings settings; settings.Parser = parser;
+                settings.Binding.TablePathPrefix = "/initial";
+                settings.Binding.ParameterTypes.emplace("p", TType{ETypeKind::Uint64});
+                std::string sql = "$q = SELECT value FROM t; PRAGMA TablePathPrefix='/later'; "
+                    "SELECT value, $p AS parameter FROM $q";
+                auto original = DiscoverNative(ParseNative(sql, settings), settings.Binding);
+                // The caller may release or reuse its input while metadata loads.
+                settings.Binding.TablePathPrefix = "/changed";
+                settings.Binding.ParameterTypes.clear();
+                sql.assign(1024, 'x');
+                auto copy = original;
+                return copy;
+            }();
+            UNIT_ASSERT_VALUES_EQUAL(discovery.Tables().size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(discovery.Tables()[0].Name, "/initial/t");
+            for (const auto type : {TType{ETypeKind::Int32}, TType{ETypeKind::Int64, true}}) {
+                const auto program = BindNative(discovery, [&](std::string_view name, TSourcePosition) {
+                    UNIT_ASSERT_VALUES_EQUAL(name, "/initial/t");
+                    return TCatalogTable{std::string(name), {{"value", type}}};
+                });
+                UNIT_ASSERT(program.Get().Results[0].Columns[0].Type == type);
+                UNIT_ASSERT(program.Get().Results[0].Columns[1].Type == (TType{ETypeKind::Uint64}));
+            }
+        }
+    }
+
+    Y_UNIT_TEST(DiscoveryPreservesCapturedPragmasAndClosures) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto sql = "PRAGMA ClassicDivision='false'; $v = 1; "
+                "$f = ($x)->{ RETURN $x / ($v + 1); }; "
+                "PRAGMA ClassicDivision='true'; $v = 10; SELECT $f(5), 5 / 2, $v";
+            const auto direct = CompileNative(sql, {}, settings);
+            const auto discovery = DiscoverNative(ParseNative(sql, settings), settings.Binding);
+            UNIT_ASSERT(discovery.Tables().empty());
+            UNIT_ASSERT_VALUES_EQUAL(Explain(BindNative(discovery, {}).Get()), Explain(direct.Program->Get()));
+        }
+        UNIT_ASSERT_EXCEPTION(DiscoverNative(ParseNative("PRAGMA TablePathPrefix=1; SELECT id FROM t")), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(DiscoverNative(ParseNative("SELECT CASE WHEN true THEN 1 END FROM t")), TFrontendError);
     }
 
     Y_UNIT_TEST(RepeatedSourcesShareCatalogSnapshotButKeepIndependentBindings) {

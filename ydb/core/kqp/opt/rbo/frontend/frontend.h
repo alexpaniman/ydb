@@ -251,6 +251,8 @@ struct TUnsupported {
 
 // Only the checked compiler can construct this handoff. The RBO converter
 // consumes it, so unchecked syntax/binder experiments cannot enter production.
+class TDiscoveredQuery;
+
 class TCompiledProgram {
 public:
     TCompiledProgram(TCompiledProgram&&) = default;
@@ -261,6 +263,7 @@ public:
 private:
     explicit TCompiledProgram(TBoundProgram program) : Program(std::move(program)) {}
     friend TCompiledProgram BindNative(const TParsedQuery&, const TTableResolver&, const TBindSettings&);
+    friend TCompiledProgram BindNative(const TDiscoveredQuery&, const TTableResolver&);
     TBoundProgram Program;
 };
 
@@ -275,10 +278,27 @@ struct TTableRequest {
     TSourcePosition Position;
 };
 
+// Own the syntax, settings and resolved lexical bindings across catalog I/O.
+// Copies share immutable discovery state; each binding uses a fresh catalog.
+class TDiscoveredQuery {
+public:
+    std::span<const TTableRequest> Tables() const;
+    bool UsedGeneratedParser() const;
+
+private:
+    struct TImpl;
+    explicit TDiscoveredQuery(std::shared_ptr<const TImpl> impl) : Impl(std::move(impl)) {}
+    friend TDiscoveredQuery DiscoverNative(TParsedQuery, TBindSettings);
+    friend TCompiledProgram BindNative(const TDiscoveredQuery&, const TTableResolver&);
+    std::shared_ptr<const TImpl> Impl;
+};
+
 // Parsing and binding can be separated by asynchronous catalog I/O. Both use
 // only native types. Fast uses the handwritten subset and delegates unhandled
 // syntax to the independent generated parser. Verify checks correspondence.
 TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings = {});
+TDiscoveredQuery DiscoverNative(TParsedQuery syntax, TBindSettings settings = {});
+TCompiledProgram BindNative(const TDiscoveredQuery& query, const TTableResolver& catalog);
 std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBindSettings& settings = {});
 TCompiledProgram BindNative(const TParsedQuery& syntax, const TTableResolver& catalog,
     const TBindSettings& settings = {});

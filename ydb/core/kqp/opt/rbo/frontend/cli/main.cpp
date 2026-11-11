@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
         unsigned iterations = 1;
         bool benchmark = false;
         bool benchmarkExplain = false;
+        bool benchmarkDiscovery = false;
         TCompilerSettings settings;
         for (int i = 1; i < argc; ++i) {
             const std::string_view arg = argv[i];
@@ -23,6 +24,7 @@ int main(int argc, char** argv) {
                              "  --write NAME KEYS     enable writes with comma-separated primary-key names\n"
                              "  --bench N              parse+bind N times and report average time\n"
                              "  --bench-explain N      format one compiled native plan N times\n"
+                             "  --bench-discovery N    compare reused and independent discovery in one process\n"
                              "  --ansi                 ANSI string escaping and nested comments\n"
                              "  --parser NAME          fast (default), grammar, handwritten, verify\n"
                              "  --mode NAME            required (default), auto, legacy\n"
@@ -48,12 +50,13 @@ int main(int argc, char** argv) {
                 else throw std::runtime_error("unknown compiler mode");
                 continue;
             }
-            if ((arg == "--bench" || arg == "--bench-explain") && i + 1 < argc) {
+            if ((arg == "--bench" || arg == "--bench-explain" || arg == "--bench-discovery") && i + 1 < argc) {
                 const std::string_view text = argv[++i];
                 auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), iterations);
                 if (error != std::errc() || end != text.data() + text.size() || !iterations) throw std::runtime_error("invalid iteration count");
                 benchmark = true;
                 benchmarkExplain = arg == "--bench-explain";
+                benchmarkDiscovery = arg == "--bench-discovery";
                 continue;
             }
             if (arg == "--write" && i + 2 < argc) {
@@ -113,6 +116,33 @@ int main(int argc, char** argv) {
         }
         const auto& program = result.Program->Get();
         if (!benchmark) std::cout << Explain(program);
+        else if (benchmarkDiscovery) {
+            const auto compile = [&](bool reuse) {
+                auto syntax = ParseNative(sql, settings);
+                if (reuse) return BindNative(DiscoverNative(std::move(syntax), settings.Binding), resolve);
+                const auto requests = CollectTables(syntax, settings.Binding);
+                return BindNative(syntax, resolve, settings.Binding);
+            };
+            const auto independent = compile(false);
+            const auto reused = compile(true);
+            if (Explain(independent.Get()) != Explain(reused.Get()))
+                throw std::runtime_error("discovery paths produced different native plans");
+            double elapsed[2]{};
+            std::size_t expressions[2]{};
+            for (unsigned i = 0; i < iterations; ++i) for (unsigned turn = 0; turn < 2; ++turn) {
+                const unsigned reuse = (i + turn) % 2;
+                const auto start = std::chrono::steady_clock::now();
+                {
+                    const auto compiled = compile(reuse);
+                    expressions[reuse] += compiled.Get().Expressions.Size();
+                }
+                elapsed[reuse] += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+            }
+            if (expressions[0] != expressions[1]) throw std::runtime_error("discovery paths produced different expression counts");
+            std::cout << "independent_discovery_us=" << elapsed[0] / iterations
+                      << " reused_discovery_us=" << elapsed[1] / iterations
+                      << " iterations=" << iterations << " bytes=" << sql.size() << '\n';
+        }
         else if (benchmarkExplain) {
             std::size_t bytes = Explain(program).size(); // warm up formatting separately
             const auto start = std::chrono::steady_clock::now();
