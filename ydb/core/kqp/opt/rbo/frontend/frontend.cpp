@@ -164,6 +164,8 @@ public:
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
+            if (statement.Explain != EExplainMode::None)
+                throw TUnsupportedFeature(EFeature::Statement, statement.Position, "SQL EXPLAIN requires an explain-result execution contract");
             if (statement.Kind == EStatementKind::Pragma) CapturedPragmas[i] = ApplyPragma(statement);
             Expression(statement.Expression);
             if (statement.Query) Select(*statement.Query);
@@ -308,6 +310,9 @@ private:
         }
     }
     void Source(const TSource& source, bool physical = false) {
+        if (source.Any) throw TUnsupportedFeature(EFeature::Backend, source.Position, "ANY joins require native duplicate-selection semantics");
+        if (source.Options && (!source.Options->Hints.empty() || source.Options->Sampling))
+            throw TUnsupportedFeature(EFeature::Backend, source.Position, "source hints and sampling require native execution support");
         if (!physical) {
             if (source.Query) { Select(*source.Query); return; }
             if (source.Name.starts_with('$')) { Sources.emplace(&source, Resolve(source.Name.substr(1))); return; }

@@ -286,7 +286,16 @@ public:
     TParsedQuery Run() {
         while (!End()) {
             if (Take(";")) continue;
-            Result.Statements.push_back(Statement());
+            const auto position = Token().Position;
+            auto explain = EExplainMode::None;
+            if (Take("EXPLAIN")) {
+                explain = EExplainMode::Explain;
+                if (Take("QUERY")) { Expect("PLAN"); explain = EExplainMode::QueryPlan; }
+            }
+            auto statement = Statement();
+            statement.Explain = explain;
+            if (explain != EExplainMode::None) statement.Position = position;
+            Result.Statements.push_back(std::move(statement));
             if (!End()) Expect(";");
         }
         return std::move(Result);
@@ -539,6 +548,7 @@ private:
 
     TSource Source() {
         TSource result; result.Position = Token().Position;
+        result.Any = Take("ANY");
         if (Take("(")) { result.Query = Select(); Expect(")"); }
         else if (Is("AS_TABLE") && Is("(", 1)) {
             ++Index; Expect("("); result.Name = "$" + Variable(); Expect(")"); result.ParameterTable = true;
@@ -586,6 +596,8 @@ private:
             } else if (kind != EJoinKind::Cross) Fail("expected ON or USING for join");
             select.Joins.push_back(std::move(join));
         }
+        if (select.Source->Any && select.Joins.empty())
+            throw TUnsupportedFeature(EFeature::Backend, select.Source->Position, "ANY requires a JOIN");
     }
 
     void AppendSet(std::shared_ptr<TSelect>& left, ESetOperation op, std::shared_ptr<TSelect> right) {

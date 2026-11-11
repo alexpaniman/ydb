@@ -80,9 +80,13 @@ public:
         auto* list = Child(root, "sql_stmt_list");
         if (!list) Unsupported(root, EFeature::LanguageVersion, "unsupported SQL language mode");
         for (auto* statement : Children(list, "sql_stmt")) {
-            if (Has(statement, "EXPLAIN")) Unsupported(statement, EFeature::Statement, "EXPLAIN SQL syntax");
             auto* core = Child(statement, "sql_stmt_core");
-            Result.Statements.push_back(Statement(Only(core)));
+            auto value = Statement(Only(core));
+            if (Has(statement, "EXPLAIN")) {
+                value.Explain = Has(statement, "QUERY") ? EExplainMode::QueryPlan : EExplainMode::Explain;
+                value.Position = Position(statement);
+            }
+            Result.Statements.push_back(std::move(value));
         }
         return std::move(Result);
     }
@@ -550,12 +554,41 @@ private:
             if (Has(node, "FLATTEN")) Unsupported(node, EFeature::Type, "FLATTEN");
             return Source(Child(node, "named_single_source"));
         }
-        for (auto name : {"row_pattern_recognition_clause", "sample_clause", "tablesample_clause"})
-            if (Child(node, name)) Unsupported(node, EFeature::Backend, name);
+        if (Child(node, "row_pattern_recognition_clause")) Unsupported(node, EFeature::Backend, "MATCH_RECOGNIZE");
         auto* hinted = Child(node, "hinted_single_source");
-        if (Child(hinted, "table_hints")) Unsupported(hinted, EFeature::Backend, "table hints");
         auto* single = Child(hinted, "single_source");
         TSource result; result.Position = Position(node);
+        auto options = [&]() -> TSourceOptions& {
+            if (!result.Options) result.Options = std::make_shared<TSourceOptions>();
+            return *result.Options;
+        };
+        if (auto* hints = Child(hinted, "table_hints")) {
+            for (auto* hint : Children(hints, "table_hint")) {
+                auto* name = Child(hint, "an_id_hint");
+                if (!name) Unsupported(hint, EFeature::Backend, "schema or watermark hint");
+                TSourceHint value{Position(hint), Id(name), EHintValueForm::None, {}};
+                value.Form = Has(hint, "(") ? EHintValueForm::List : Has(hint, "=") ? EHintValueForm::Scalar : EHintValueForm::None;
+                for (auto* tag : Children(hint, "type_name_tag")) {
+                    if (auto* parameter = Child(tag, "bind_parameter"))
+                        value.Values.push_back({EHintValueKind::Binding, Variable(parameter), Position(tag)});
+                    else if (auto* identifier = Child(tag, "id"))
+                        value.Values.push_back({EHintValueKind::Identifier, Id(identifier), Position(tag)});
+                    else value.Values.push_back({EHintValueKind::String, Decode(tag->getText(), tag), Position(tag)});
+                }
+                options().Hints.push_back(std::move(value));
+            }
+        }
+        auto* sample = Child(node, "sample_clause");
+        auto* tableSample = Child(node, "tablesample_clause");
+        if (sample || tableSample) {
+            TSyntaxSampling sampling;
+            sampling.Rate = Expr(Child(sample ? sample : tableSample, "expr"));
+            if (tableSample) {
+                sampling.Mode = Has(Child(tableSample, "sampling_mode"), "BERNOULLI") ? ESamplingMode::Bernoulli : ESamplingMode::System;
+                if (auto* repeatable = Child(tableSample, "repeatable_clause")) sampling.Seed = Expr(Child(repeatable, "expr"));
+            }
+            options().Sampling = sampling;
+        }
         auto* alias = Child(node, "an_id"); if (!alias) alias = Child(node, "an_id_as_compat");
         if (alias) result.Alias = Id(alias);
         if (auto* columns = Child(node, "pure_column_list"))
@@ -592,10 +625,11 @@ private:
         return result;
     }
     void From(TTree* node, TSelect& result) {
-        if (Has(node, "ANY")) Unsupported(node, EFeature::Backend, "ANY join");
         std::optional<TJoin> join;
-        for (auto* child : Rules(node)) {
-            if (Name(child) == "join_op") {
+        std::optional<TSourcePosition> any;
+        for (auto* child : node->children) {
+            if (Name(child).empty() && Upper(child->getText()) == "ANY") any = Position(child);
+            else if (Name(child) == "join_op") {
                 if (join) result.Joins.push_back(std::move(*join));
                 const auto text = Upper(child->getText());
                 EJoinKind kind = EJoinKind::Inner;
@@ -608,7 +642,13 @@ private:
                 else if (Has(child, "OUTER")) Unsupported(child, EFeature::Backend, "OUTER JOIN requires LEFT, RIGHT or FULL");
                 join.emplace(TJoin{kind, {}});
             } else if (Name(child) == "flatten_source") {
-                if (join) join->Source = Source(child); else result.Source = Source(child);
+                auto source = Source(child);
+                if (any) {
+                    source.Any = true;
+                    source.Position = *any;
+                    any.reset();
+                }
+                if (join) join->Source = std::move(source); else result.Source = std::move(source);
             } else if (Name(child) == "join_constraint") {
                 if (Has(child, "USING")) {
                     for (auto* key : Children(Child(child, "pure_column_or_named_list"), "pure_column_or_named")) {
@@ -619,6 +659,7 @@ private:
             }
         }
         if (join) result.Joins.push_back(std::move(*join));
+        if (result.Source->Any && result.Joins.empty()) Unsupported(node, EFeature::Backend, "ANY requires a JOIN");
     }
     std::shared_ptr<TSyntaxWindow> Window(TTree* node) {
         auto* spec = Name(node) == "window_specification" ? node : Child(node, "window_specification");
@@ -995,10 +1036,21 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << ')';
     };
     auto source = [&](const TSource& value) {
-        text(value.Name); text(value.Alias); out << value.ParameterTable;
+        text(value.Name); text(value.Alias); out << value.ParameterTable << value.Any;
         out << bool(value.Index); if (value.Index) text(*value.Index);
         out << "aliases["; for (const auto& name : value.ColumnAliases) text(name); out << "]";
         if (value.Query) select(*value.Query);
+        if (value.Options) {
+            for (const auto& hint : value.Options->Hints) {
+                out << "hint["; text(hint.Name); out << static_cast<int>(hint.Form);
+                for (const auto& argument : hint.Values) { out << static_cast<int>(argument.Kind); text(argument.Text); }
+                out << ']';
+            }
+            if (value.Options->Sampling) {
+                const auto& sampling = *value.Options->Sampling;
+                out << "sampling[" << static_cast<int>(sampling.Mode); expr(sampling.Rate); expr(sampling.Seed); out << ']';
+            }
+        }
     };
     auto named = [&](const std::vector<TNamedExpr>& values) {
         out << '['; for (const auto& value : values) { expr(value.Expression); text(value.Alias); } out << ']';
@@ -1020,7 +1072,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << '}';
     };
     for (const auto& statement : query.Statements) {
-        out << static_cast<int>(statement.Kind) << ':';
+        out << static_cast<int>(statement.Kind) << ':' << static_cast<int>(statement.Explain) << ':';
         text(statement.Name); text(statement.Value); out << statement.ScalarList;
         out << static_cast<int>(statement.PragmaForm) << '[';
         for (const auto& value : statement.PragmaValues) { out << static_cast<int>(value.Kind); text(value.Text); }

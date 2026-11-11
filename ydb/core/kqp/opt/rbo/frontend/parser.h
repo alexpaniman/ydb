@@ -60,14 +60,42 @@ struct TNamedExpr {
     std::string Alias = {};
 };
 
+enum class EHintValueKind : std::uint8_t { Identifier, String, Binding };
+enum class EHintValueForm : std::uint8_t { None, Scalar, List };
+struct TSourceHintValue {
+    EHintValueKind Kind;
+    std::string Text;
+    TSourcePosition Position;
+};
+struct TSourceHint {
+    TSourcePosition Position;
+    std::string Name;
+    EHintValueForm Form = EHintValueForm::None;
+    std::vector<TSourceHintValue> Values;
+};
+enum class ESamplingMode : std::uint8_t { Sample, Bernoulli, System };
+struct TSyntaxSampling {
+    ESamplingMode Mode = ESamplingMode::Sample;
+    TSyntaxId Rate = NoSyntax;
+    TSyntaxId Seed = NoSyntax;
+};
+// Source-local syntax, allocated only for decorated sources. A vector retains
+// repeated hint names and their order; binding owns execution admission.
+struct TSourceOptions {
+    std::vector<TSourceHint> Hints;
+    std::optional<TSyntaxSampling> Sampling;
+};
+
 struct TSource {
     TSourcePosition Position;
     std::string Name;
     std::string Alias;
     std::shared_ptr<TSelect> Query;
     bool ParameterTable = false;
+    bool Any = false;
     std::vector<std::string> ColumnAliases;
     std::optional<std::string> Index;
+    std::shared_ptr<TSourceOptions> Options;
 };
 
 enum class EJoinKind : std::uint8_t { Inner, Cross, Left, Right, Full, LeftSemi, RightSemi, LeftOnly, RightOnly, Exclusion };
@@ -160,6 +188,7 @@ struct TWriteStatement {
 };
 
 enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use, Write };
+enum class EExplainMode : std::uint8_t { None, Explain, QueryPlan };
 enum class EPragmaValueKind : std::uint8_t { String, Integer, Real, Boolean, Identifier, Binding };
 enum class EPragmaValueForm : std::uint8_t { None, Assignment, List };
 
@@ -172,6 +201,7 @@ struct TPragmaValue {
 struct TStatement {
     TStatement(EStatementKind kind, TSourcePosition position) : Kind(kind), Position(position) {}
     EStatementKind Kind;
+    EExplainMode Explain = EExplainMode::None;
     TSourcePosition Position;
     std::string Name;
     // DECLARE type spelling. Pragmas retain decoded arguments separately so

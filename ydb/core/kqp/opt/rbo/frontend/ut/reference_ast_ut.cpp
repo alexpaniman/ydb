@@ -24,6 +24,152 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(AnsiSpellingsAndMultipleStatements) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast("--!ansi_lexer\nEXPLAIN QUERY PLAN SELECT 'a''b' AS \"a\"\"b\"; SELECT 42ul;", grammar);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements.size(), 2);
+            UNIT_ASSERT(syntax.Statements[0].Explain == EExplainMode::QueryPlan);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].Position.Line, 2);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].Position.Column, 1);
+            UNIT_ASSERT(syntax.Statements[1].Explain == EExplainMode::None);
+            UNIT_ASSERT_VALUES_EQUAL(Projection(syntax, 0).Text, "a'b");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].Query->Projection[0].Alias, "a\"b");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[syntax.Statements[1].Query->Projection[0].Expression].Text, "42ul");
+            UNIT_ASSERT(Ast("EXPLAIN SELECT 1", grammar).Statements[0].Explain == EExplainMode::Explain);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(Parse("EXPLAIN QUERY PLAN SELECT 1; SELECT 2")),
+            SyntaxFingerprint(ParseGrammar("EXPLAIN QUERY PLAN SELECT 1; SELECT 2")));
+        UNIT_ASSERT(SyntaxFingerprint(Parse("EXPLAIN SELECT 1")) != SyntaxFingerprint(Parse("SELECT 1")));
+    }
+
+    Y_UNIT_TEST(AnyUsingAndQualifiedStar) {
+        const auto* sql = "SELECT l.*, r.v FROM ANY t AS l INNER JOIN ANY u AS r USING(id);";
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)));
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(sql, grammar);
+            const auto& select = *syntax.Statements[0].Query;
+            UNIT_ASSERT(Projection(syntax, 0).Kind == ESyntaxKind::Star);
+            UNIT_ASSERT_VALUES_EQUAL(Projection(syntax, 0).Text, "l");
+            UNIT_ASSERT(select.Source->Any && select.Joins[0].Source.Any);
+            UNIT_ASSERT_VALUES_EQUAL(select.Source->Position.Offset, std::string_view(sql).find("ANY"));
+            UNIT_ASSERT_VALUES_EQUAL(select.Joins[0].Source.Position.Offset, std::string_view(sql).rfind("ANY"));
+            UNIT_ASSERT_VALUES_EQUAL(select.Joins[0].Using[0], "id");
+            UNIT_ASSERT(select.Joins[0].Predicate == NoSyntax);
+        }
+    }
+
+    Y_UNIT_TEST(AnyJoinInputsAreIndependent) {
+        for (const bool grammar : {false, true}) for (const bool ansi : {false, true})
+        for (const bool leftAny : {false, true}) for (const bool rightAny : {false, true}) {
+            const std::string sql = std::string(ansi ? "--!ansi_lexer\n" : "") + "SELECT * FROM "
+                + (leftAny ? "ANY " : "") + "t AS l LEFT JOIN " + (rightAny ? "ANY " : "") + "u AS r ON l.id = r.id;";
+            const auto syntax = Ast(sql, grammar);
+            const auto& select = *syntax.Statements[0].Query;
+            const auto& join = select.Joins[0];
+            UNIT_ASSERT(join.Kind == EJoinKind::Left);
+            UNIT_ASSERT_VALUES_EQUAL(select.Source->Any, leftAny);
+            UNIT_ASSERT_VALUES_EQUAL(join.Source.Any, rightAny);
+            UNIT_ASSERT_VALUES_EQUAL(select.Source->Alias, "l");
+            UNIT_ASSERT_VALUES_EQUAL(join.Source.Alias, "r");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[join.Predicate].Text, "=");
+        }
+    }
+
+    Y_UNIT_TEST(AnyDoesNotLeakAcrossJoinChainOrSubquery) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT * FROM ANY t AS l
+                JOIN ANY (SELECT * FROM u JOIN w ON u.id = w.id) WITH infer AS r SAMPLE 0.5 ON l.id = r.id
+                JOIN v AS s ON r.id = s.id;)", grammar);
+            const auto& select = *syntax.Statements[0].Query;
+            UNIT_ASSERT_VALUES_EQUAL(select.Joins.size(), 2);
+            UNIT_ASSERT(select.Source->Any && select.Joins[0].Source.Any);
+            UNIT_ASSERT(!select.Joins[1].Source.Any);
+            const auto& derived = select.Joins[0].Source;
+            UNIT_ASSERT_VALUES_EQUAL(derived.Alias, "r");
+            UNIT_ASSERT_VALUES_EQUAL(derived.Options->Hints.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(derived.Options->Hints[0].Name, "infer");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[derived.Options->Sampling->Rate].Text, "0.5");
+            UNIT_ASSERT(!derived.Query->Source->Any && !derived.Query->Joins[0].Source.Any);
+            UNIT_ASSERT_VALUES_EQUAL(select.Joins[1].Source.Alias, "s");
+            UNIT_ASSERT(!select.Joins[1].Source.Options);
+        }
+    }
+
+    Y_UNIT_TEST(SamplingModesAndSourcePlacement) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT * FROM t AS l SAMPLE $fraction
+                JOIN (SELECT * FROM u) AS r TABLESAMPLE BERNOULLI(10 + 5) REPEATABLE($seed)
+                ON l.id = r.id; SELECT * FROM t TABLESAMPLE SYSTEM(25);)", grammar);
+            const auto& select = *syntax.Statements[0].Query;
+            const auto& left = *select.Source->Options->Sampling;
+            UNIT_ASSERT(left.Mode == ESamplingMode::Sample && left.Seed == NoSyntax);
+            UNIT_ASSERT(syntax.Expressions[left.Rate].Kind == ESyntaxKind::Variable);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[left.Rate].Text, "fraction");
+            const auto& derived = select.Joins[0].Source;
+            UNIT_ASSERT(derived.Query && !derived.Query->Source->Options);
+            UNIT_ASSERT_VALUES_EQUAL(derived.Alias, "r");
+            const auto& right = *derived.Options->Sampling;
+            UNIT_ASSERT(right.Mode == ESamplingMode::Bernoulli);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[right.Rate].Text, "+");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[right.Seed].Text, "seed");
+            const auto& system = *syntax.Statements[1].Query->Source->Options->Sampling;
+            UNIT_ASSERT(system.Mode == ESamplingMode::System && system.Seed == NoSyntax);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[system.Rate].Text, "25");
+        }
+    }
+
+    Y_UNIT_TEST(GenericHintsPreserveValuesAndOrder) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT * FROM t WITH (infer, format = 'csv',
+                flags = (foo, 'bar', $baz), format = json, one = (foo)) AS src SAMPLE 0.5;
+                SELECT * FROM u WITH truncate;)", grammar);
+            const auto& source = *syntax.Statements[0].Query->Source;
+            const auto& hints = source.Options->Hints;
+            UNIT_ASSERT_VALUES_EQUAL(hints.size(), 5);
+            UNIT_ASSERT_VALUES_EQUAL(hints[0].Name, "infer");
+            UNIT_ASSERT(hints[0].Form == EHintValueForm::None && hints[0].Values.empty());
+            UNIT_ASSERT(hints[1].Form == EHintValueForm::Scalar);
+            UNIT_ASSERT(hints[1].Values[0].Kind == EHintValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(hints[1].Values[0].Text, "csv");
+            UNIT_ASSERT(hints[2].Form == EHintValueForm::List);
+            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values.size(), 3);
+            UNIT_ASSERT(hints[2].Values[0].Kind == EHintValueKind::Identifier);
+            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[0].Text, "foo");
+            UNIT_ASSERT(hints[2].Values[1].Kind == EHintValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[1].Text, "bar");
+            UNIT_ASSERT(hints[2].Values[2].Kind == EHintValueKind::Binding);
+            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[2].Text, "baz");
+            UNIT_ASSERT_VALUES_EQUAL(hints[3].Name, "format");
+            UNIT_ASSERT(hints[3].Values[0].Kind == EHintValueKind::Identifier);
+            UNIT_ASSERT(hints[4].Form == EHintValueForm::List && hints[4].Values.size() == 1);
+            UNIT_ASSERT_VALUES_EQUAL(source.Alias, "src");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[source.Options->Sampling->Rate].Text, "0.5");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[1].Query->Source->Options->Hints.size(), 1);
+            const auto quoted = Ast("--!ansi_lexer\nSELECT * FROM t WITH (\"hint\" = 'a''b');", grammar);
+            const auto& hint = quoted.Statements[0].Query->Source->Options->Hints[0];
+            UNIT_ASSERT_VALUES_EQUAL(hint.Name, "hint");
+            UNIT_ASSERT_VALUES_EQUAL(hint.Values[0].Text, "a'b");
+        }
+    }
+
+    Y_UNIT_TEST(SourceModifiersRequireExplicitExecutionAdmission) {
+        for (const bool grammar : {false, true}) for (const auto* sql : {
+            "SELECT l.id FROM ANY t AS l JOIN u AS r ON l.id = r.id",
+            "SELECT * FROM t WITH infer", "SELECT * FROM t SAMPLE 0.5",
+            "EXPLAIN SELECT * FROM t", "EXPLAIN QUERY PLAN SELECT * FROM t"}) {
+            const auto syntax = Ast(sql, grammar);
+            UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
+            UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+                UNIT_FAIL("unsupported source semantics reached catalog I/O");
+                return {};
+            }), TUnsupportedFeature, sql);
+        }
+        UNIT_ASSERT(SyntaxFingerprint(Ast("SELECT * FROM t WITH format = csv", true)) !=
+            SyntaxFingerprint(Ast("SELECT * FROM t WITH format = json", true)));
+        UNIT_ASSERT(SyntaxFingerprint(Ast("SELECT * FROM t SAMPLE 0.5", true)) !=
+            SyntaxFingerprint(Ast("SELECT * FROM t SAMPLE 0.6", true)));
+    }
+
     Y_UNIT_TEST(PragmasPreserveOrderAndValueForms) {
         const auto* sql = R"(PRAGMA OrderedColumns;
             PRAGMA yt.Pool = 'batch'; SELECT 1;
