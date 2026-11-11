@@ -20,6 +20,9 @@ bool IsRejectedLiteral(const TExprNode& node) {
 std::span<const TExprId> PredicateInputs(const TExpressionArena& arena, TExprId id) {
     const auto& node = arena[id];
     if (node.Type.Kind != K::Bool || node.Type.OptionalDepth > 1) return {};
+    // A present optional wrapper cannot change whether a Boolean selects a
+    // row. Retain the wrapped expression itself, including its evaluation.
+    if (node.Op == O::OptionalWrap) return node.Arguments;
     switch (node.Op) {
         case O::Convert:
             return arena[node.Arguments[0]].Type.Required() == node.Type.Required()
@@ -54,7 +57,7 @@ TExprId PrepareFilterPredicate(TExpressionArena& arena, TExprId root) {
         // Constructors append nodes and may invalidate references into the arena.
         const auto node = arena[id];
         TExprId result = id;
-        if (node.Op == O::Convert || node.Op == O::Coalesce) {
+        if (node.Op == O::Convert || node.Op == O::Coalesce || node.Op == O::OptionalWrap) {
             result = prepared.at(node.Arguments[0]);
         } else if (node.Op == O::And || node.Op == O::Or) {
             const auto left = node.Op == O::And ? node.Arguments[0] : prepared.at(node.Arguments[0]);

@@ -2896,9 +2896,27 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
 }
 
 std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes) {
-    std::unordered_map<TExprId, TExprId> rewritten;
+    struct TRewritten {
+        TExprId Id;
+        bool Total;
+    };
+    std::unordered_map<TExprId, TRewritten> rewritten;
     std::vector<std::pair<TExprId, bool>> pending;
-    auto fold = [&](TExprNode node, TExprId original, bool changed) {
+    // Conservative totality for this traversal only. Unknown/runtime operations
+    // remain observable; errors and nondeterministic calls cannot be discarded
+    // merely because another Boolean operand determines the result.
+    const auto totalOperation = [](O op) {
+        switch (op) {
+            case O::Literal: case O::Column: case O::Parameter:
+            case O::Negate: case O::Not: case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo:
+            case O::Equal: case O::NotEqual: case O::Less: case O::LessEqual: case O::Greater: case O::GreaterEqual:
+            case O::And: case O::Or: case O::If: case O::Coalesce: case O::OptionalWrap:
+            case O::IsNull: case O::IsNotNull: case O::IsNotDistinct:
+                return true;
+            default: return false;
+        }
+    };
+    auto fold = [&](TExprNode node, TExprId original, bool changed, bool firstTotal) {
         auto retain = [&] { return changed ? Rebuild(node) : original; };
         auto literal = [&](TScalar value) {
             auto remaining = maxStringBytes;
@@ -2929,6 +2947,15 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             const auto& left = (*this)[node.Arguments[0]];
             const auto& right = (*this)[node.Arguments[1]];
             const bool decisive = node.Op == O::Or;
+            // Neutral literals do not affect NULLs, evaluation order or errors
+            // in the other operand. A decisive right literal can discard its
+            // left operand only when that evaluation is known to be total.
+            if (right.Op == O::Literal && std::holds_alternative<bool>(right.Value) && std::get<bool>(right.Value) != decisive)
+                return Convert(node.Arguments[0], node.Type, node.Position);
+            if (left.Op == O::Literal && std::holds_alternative<bool>(left.Value) && std::get<bool>(left.Value) != decisive)
+                return Convert(node.Arguments[1], node.Type, node.Position);
+            if (firstTotal && right.Op == O::Literal && std::holds_alternative<bool>(right.Value) && std::get<bool>(right.Value) == decisive)
+                return literal(decisive);
             if (left.Op != O::Literal) return retain();
             if (std::holds_alternative<bool>(left.Value) && std::get<bool>(left.Value) == decisive) return literal(decisive);
             if (right.Op != O::Literal) return retain();
@@ -2936,6 +2963,10 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             return literal(std::holds_alternative<std::monostate>(left.Value) || std::holds_alternative<std::monostate>(right.Value) ?
                 TScalar{std::monostate{}} : TScalar{!decisive});
         }
+        if ((node.Op == O::IsNull || node.Op == O::IsNotNull) &&
+            firstTotal && (*this)[node.Arguments[0]].Type.Kind != K::Null &&
+            !(*this)[node.Arguments[0]].Type.OptionalDepth)
+            return literal(node.Op == O::IsNotNull);
         if (node.Op == O::Coalesce) {
             for (const auto arg : node.Arguments) {
                 const auto& value = (*this)[arg];
@@ -2982,7 +3013,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             if (!ready) {
                 const auto& node = (*this)[id];
                 if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) {
-                    rewritten.emplace(id, id);
+                    rewritten.emplace(id, TRewritten{id, true});
                     continue;
                 }
                 if (!node.Arguments.empty()) {
@@ -2994,17 +3025,21 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             }
             auto node = (*this)[id]; // folding may append and reallocate the arena
             bool changed = false;
+            bool total = totalOperation(node.Op);
+            const bool firstTotal = !node.Arguments.empty() && rewritten.at(node.Arguments.front()).Total;
             for (auto& arg : node.Arguments) {
                 const auto replacement = rewritten.at(arg);
-                changed |= replacement != arg;
-                arg = replacement;
+                total &= replacement.Total;
+                changed |= replacement.Id != arg;
+                arg = replacement.Id;
             }
-            rewritten.emplace(id, fold(std::move(node), id, changed));
+            const auto result = fold(std::move(node), id, changed, firstTotal);
+            rewritten.emplace(id, TRewritten{result, total || (*this)[result].Op == O::Literal});
         }
     }
     std::vector<TExprId> result;
     result.reserve(roots.size());
-    for (auto root : roots) result.push_back(rewritten.at(root));
+    for (auto root : roots) result.push_back(rewritten.at(root).Id);
     return result;
 }
 

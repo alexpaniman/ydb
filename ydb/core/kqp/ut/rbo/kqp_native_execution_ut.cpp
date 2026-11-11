@@ -40,6 +40,38 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST(BooleanFilterPreparationMatchesLegacy) {
+        const TVector<TString> predicates{"Just(r)", "Just(r = true)", "r IS NOT NULL", "r IS NULL",
+            "b AND true", "b OR false", "IF(b, true, false)", "Just(b IS NOT NULL)"};
+        TParamsBuilder parameters;
+        auto& rows = parameters.AddParam("$rows").BeginList();
+        ui32 id = 0;
+        for (const auto b : {std::optional<bool>{}, std::optional<bool>{false}, std::optional<bool>{true}})
+            rows.AddListItem().BeginStruct().AddMember("id").Uint32(id++)
+                .AddMember("b").OptionalBool(b).AddMember("r").Bool(b.value_or(false)).EndStruct();
+        rows.EndList().Build();
+        const auto params = parameters.Build();
+        TVector<TString> expected;
+        for (const bool native : {false, true}) {
+            TKikimrRunner kikimr(Settings(native));
+            for (std::size_t i = 0; i < predicates.size(); ++i) {
+                const TString sql = TStringBuilder()
+                    << "DECLARE $rows AS List<Struct<id:Uint32,b:Bool?,r:Bool>>; "
+                    << "SELECT id, b AND true AS a, b OR false AS o, true AND b AS l, r AND Just(true) AS n "
+                    << "FROM AS_TABLE($rows) WHERE " << predicates[i] << " ORDER BY id;";
+                const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                const auto& resultRows = result.GetResultSet(0);
+                TString signature = FormatResultSetYson(resultRows);
+                for (const auto& column : resultRows.GetColumnsMeta()) signature += "|" + column.Name + ":" + column.Type.ToString();
+                if (!native) expected.push_back(signature);
+                else UNIT_ASSERT_VALUES_EQUAL_C(signature, expected[i], sql);
+            }
+        }
+    }
+
+
     Y_UNIT_TEST(ScalarFunctionNamesAndMetadataMatchLegacy) {
         const TVector<TString> queries{
             "SELECT aBs(-1), Length('abc'), ListLength([1, 2]), ListHasItems([1]), Starts_With('abc', 'a'), "

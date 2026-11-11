@@ -21,6 +21,19 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(FilterOptionalityMatchesTheRboInputContract) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT id FROM a WHERE Just(id > 0ul)", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto root = *Find(program, ERelation::Filter).Predicate;
+            UNIT_ASSERT(program.Expressions[root].Op == EOpcode::Greater);
+            for (const auto* sql : {"SELECT id FROM a WHERE Just(value > 0)",
+                    "SELECT id FROM a WHERE Just(Just(id > 0ul))"})
+                UNIT_ASSERT_EXCEPTION_CONTAINS(CompileNative(sql, Catalog, settings), TFrontendError, "Bool or Bool?");
+        }
+    }
+
     Y_UNIT_TEST(QualifiedAndDottedNamesRetainIdentityAndAmbiguity) {
         const auto catalog = [](std::string_view name, TSourcePosition) {
             return TCatalogTable{std::string(name), {{"k", {ETypeKind::Uint64}}, {"x.k", {ETypeKind::Uint64}}}};

@@ -940,6 +940,7 @@ private:
     TRelId Filter(TRelId input, TExprId predicate, TSourcePosition pos) {
         const auto type = Program.Expressions[predicate].Type;
         if (type.Kind != ETypeKind::Bool && type.Kind != ETypeKind::Null) throw TFrontendError(pos, "predicate must have Boolean type");
+        if (type.OptionalDepth > 1) throw TFrontendError(pos, "predicate must have Bool or Bool? type");
         if (type.Kind == ETypeKind::Null) predicate = Program.Expressions.Literal({ETypeKind::Bool}, false, pos);
         TRelation filter{ERelation::Filter, pos}; filter.Inputs = {input}; filter.Columns = Program.Relations[input].Columns;
         filter.Predicate = PrepareFilterPredicate(Program.Expressions, predicate); return Relation(std::move(filter));

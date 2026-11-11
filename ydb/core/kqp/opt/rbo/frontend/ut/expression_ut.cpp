@@ -252,6 +252,72 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT(arena[limited].Op == O::ListConcat);
     }
 
+    Y_UNIT_TEST(BooleanIdentitiesPreserveTypesNullsAndErrors) {
+        for (const bool optional : {false, true}) for (const bool literalOptional : {false, true})
+        for (const auto op : {O::And, O::Or}) for (const bool left : {false, true}) {
+            TExpressionArena arena;
+            const TType type{K::Bool, optional};
+            const auto input = arena.Column(0, type);
+            const auto literal = arena.Literal({K::Bool, literalOptional}, op == O::And);
+            const auto root = arena.Binary(op, left ? literal : input, left ? input : literal);
+            const auto folded = arena.FoldConstants(std::span(&root, 1)).front();
+            UNIT_ASSERT(arena[folded].Type == arena[root].Type);
+            for (const TScalar& value : {TScalar{}, TScalar{false}, TScalar{true}}) {
+                if (!optional && std::holds_alternative<std::monostate>(value)) continue;
+                TEvaluationContext ctx;
+                unsigned reads = 0;
+                ctx.Column = [&](auto) { ++reads; return TValue{type, value}; };
+                const auto expected = Evaluate(arena, root, ctx);
+                UNIT_ASSERT_VALUES_EQUAL(reads, 1);
+                reads = 0;
+                const auto actual = Evaluate(arena, folded, ctx);
+                UNIT_ASSERT(actual.Type == expected.Type);
+                UNIT_ASSERT(actual.Data == expected.Data);
+                UNIT_ASSERT_VALUES_EQUAL(reads, 1);
+            }
+            const auto checked = arena.Ensure(input, arena.Literal({K::Bool}, false), "must evaluate");
+            // A right-hand constant must never suppress a checked left operand,
+            // whether it is neutral or decides the Boolean result.
+            for (const bool constant : {false, true}) {
+                const auto failure = arena.Binary(op, checked, arena.Literal({K::Bool}, constant));
+                const auto result = arena.FoldConstants(std::span(&failure, 1)).front();
+                TEvaluationContext ctx; ctx.Column = [&](auto) { return TValue{type, true}; };
+                UNIT_ASSERT_EXCEPTION(Evaluate(arena, result, ctx), TFrontendError);
+            }
+        }
+        TExpressionArena arena;
+        for (const bool optional : {false, true}) for (const auto op : {O::IsNull, O::IsNotNull}) {
+            const auto root = arena.Unary(op, arena.Column(0, {K::Int32, optional}));
+            const auto folded = arena.FoldConstants(std::span(&root, 1)).front();
+            UNIT_ASSERT_VALUES_EQUAL(arena[folded].Op == O::Literal, !optional);
+            if (!optional) UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded).Data), op == O::IsNotNull);
+        }
+        const auto number = arena.Column(0, {K::Int32});
+        const auto sum = arena.Binary(O::Add, number, arena.Literal({K::Int32}, std::int64_t{1}));
+        const auto exists = arena.Unary(O::IsNotNull, sum);
+        UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, arena.FoldConstants(std::span(&exists, 1)).front()).Data), true);
+        const auto checked = arena.Ensure(number, arena.Literal({K::Bool}, false), "must evaluate");
+        const auto checkedExists = arena.Unary(O::IsNotNull, checked);
+        const auto kept = arena.FoldConstants(std::span(&checkedExists, 1)).front();
+        TEvaluationContext context;
+        context.Column = [](auto) { return TValue{{K::Int32}, std::int64_t{1}}; };
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, kept, context), TFrontendError);
+        const auto random = arena.Call("RandomNumber", {});
+        const auto randomPositive = arena.Binary(O::Greater, random, arena.Literal({K::Double}, 0.0));
+        const auto positive = arena.Binary(O::Greater, number, arena.Literal({K::Int32}, std::int64_t{0}));
+        for (const auto op : {O::And, O::Or}) {
+            const auto decisive = arena.Literal({K::Bool}, op == O::Or);
+            const auto pure = arena.Binary(op, positive, decisive);
+            UNIT_ASSERT(arena[arena.FoldConstants(std::span(&pure, 1)).front()].Op == O::Literal);
+            const auto observable = arena.Binary(op, randomPositive, decisive);
+            const auto folded = arena.FoldConstants(std::span(&observable, 1)).front();
+            unsigned calls = 0;
+            context.RandomNumber = [&] { ++calls; return 0.5; };
+            UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded, context).Data), op == O::Or);
+            UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+        }
+    }
+
     Y_UNIT_TEST(FilterPreparationPreservesTruthAndScalarEvaluationOrder) {
         TExpressionArena arena;
         const auto p = arena.Parameter("p", {K::Bool, true});
@@ -267,6 +333,8 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         const auto random = arena.Call("RandomUuid", {});
         const auto randomMatch = arena.Binary(O::Equal, random, arena.Literal({K::Uuid}, std::string(16, 'x')));
         const std::vector roots{
+            arena.Unary(O::OptionalWrap, unwrapped),
+            arena.Unary(O::OptionalWrap, randomMatch),
             otherwise(p, no),
             arena.Binary(O::Or, otherwise(p, no), q),
             arena.Binary(O::And, otherwise(p, no), checked),
