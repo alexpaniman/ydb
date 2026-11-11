@@ -1088,7 +1088,9 @@ TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
         }
         check(result);
     }
-    if (operation == EGroupingOperation::Rollup || operation == EGroupingOperation::Cube) std::reverse(result.begin(), result.end());
+    // Preserve the existing SQL-to-RBO branch order: ROLLUP starts with
+    // the grand total, and CUBE appends each additional subset in key order.
+    // Explicit GROUPING SETS and products keep their written order.
     return result;
 }
 
