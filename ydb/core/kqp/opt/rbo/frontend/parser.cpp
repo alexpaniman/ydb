@@ -886,11 +886,13 @@ private:
     std::shared_ptr<TSyntaxWindow> Window() {
         TDepth depth(*this);
         if (!Is("(")) throw TUnsupportedFeature(EFeature::Window, Token().Position, "named window requires the grammar parser");
+        const auto position = Token().Position;
         Expect("(");
         auto result = std::make_shared<TSyntaxWindow>();
+        result->Position = position;
         if (Take("PARTITION")) {
             Expect("BY");
-            do { result->Partition.push_back(Expression()); } while (Take(","));
+            do { result->Partition.push_back({Expression()}); } while (Take(","));
         }
         if (Take("ORDER")) {
             Expect("BY");
@@ -913,6 +915,7 @@ private:
                     (preceding ? EWindowBound::Preceding : EWindowBound::Following);
             };
             if (Take("BETWEEN")) {
+                result->ExplicitFrameEnd = true;
                 bound(result->Frame.Begin, result->BeginOffset);
                 Expect("AND");
                 bound(result->Frame.End, result->EndOffset);

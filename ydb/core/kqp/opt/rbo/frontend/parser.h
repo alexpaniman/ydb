@@ -18,6 +18,8 @@ struct TSyntaxLambda;
 
 enum class EWindowFrame : std::uint8_t { Default, Rows, Range, Groups };
 enum class EWindowBound : std::uint8_t { UnboundedPreceding, Preceding, CurrentRow, Following, UnboundedFollowing };
+enum class EWindowExclusion : std::uint8_t { Default, CurrentRow, Group, Ties, NoOthers };
+enum class ENullTreatment : std::uint8_t { Default, Ignore, Respect };
 
 struct TWindowFrame {
     EWindowFrame Type = EWindowFrame::Default;
@@ -44,6 +46,8 @@ struct TSyntaxExpr {
     std::vector<TSyntaxId> Arguments;
     std::shared_ptr<TSelect> Query;
     bool Distinct = false;
+    ENullTreatment NullTreatment = ENullTreatment::Default;
+    TSyntaxId Filter = NoSyntax;
     std::shared_ptr<TSyntaxWindow> Window = {};
     std::shared_ptr<TSyntaxLambda> Lambda = {};
 };
@@ -113,11 +117,24 @@ struct TSortKey {
 };
 
 struct TSyntaxWindow {
-    std::vector<TSyntaxId> Partition;
+    TSourcePosition Position;
+    // OVER name references a complete window; OVER (name ...) inherits it.
+    // Parsing retains that distinction. Binding owns name lookup and admission.
+    std::string Name;
+    bool ReferenceOnly = false;
+    bool CompactPartition = false;
+    bool ExplicitFrameEnd = false;
+    EWindowExclusion Exclusion = EWindowExclusion::Default;
+    std::vector<TNamedExpr> Partition;
     std::vector<TSortKey> Order;
     TWindowFrame Frame;
     TSyntaxId BeginOffset = NoSyntax;
     TSyntaxId EndOffset = NoSyntax;
+};
+
+struct TNamedWindow {
+    std::string Name;
+    std::shared_ptr<TSyntaxWindow> Specification;
 };
 
 enum class ESetOperation : std::uint8_t { Push, UnionAll, Union, IntersectAll, Intersect, ExceptAll, Except };
@@ -147,6 +164,7 @@ struct TSelect {
     // empty grouping set, which still requires an aggregate relation.
     TGroupingSets GroupingSets;
     TSyntaxId Having = NoSyntax;
+    std::vector<TNamedWindow> Windows;
     std::vector<TSortKey> OrderBy;
     TSyntaxId Limit = NoSyntax;
     TSyntaxId Offset = NoSyntax;

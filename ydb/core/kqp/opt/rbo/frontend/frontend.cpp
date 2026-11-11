@@ -135,12 +135,11 @@ std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
     return TPlannerSetting{kind, enabled, statement.Position};
 }
 
-void WindowChildren(const TSyntaxExpr& node, std::vector<TSyntaxId>& out) {
-    if (!node.Window) return;
-    out.insert(out.end(), node.Window->Partition.begin(), node.Window->Partition.end());
-    for (const auto& key : node.Window->Order) out.push_back(key.Expression);
-    if (node.Window->BeginOffset != NoSyntax) out.push_back(node.Window->BeginOffset);
-    if (node.Window->EndOffset != NoSyntax) out.push_back(node.Window->EndOffset);
+void WindowChildren(const TSyntaxWindow& window, std::vector<TSyntaxId>& out) {
+    for (const auto& key : window.Partition) out.push_back(key.Expression);
+    for (const auto& key : window.Order) out.push_back(key.Expression);
+    if (window.BeginOffset != NoSyntax) out.push_back(window.BeginOffset);
+    if (window.EndOffset != NoSyntax) out.push_back(window.EndOffset);
 }
 
 // Resolve each reference to its lexical declaration once. Closures keep
@@ -206,6 +205,9 @@ public:
         return it == CteSources.end() ? nullptr : it->second;
     }
     const std::string& PhysicalPath(const TSource& source) const { return PhysicalPaths.at(&source); }
+    const TSyntaxWindow& Window(const TSyntaxWindow& syntax) const {
+        return syntax.ReferenceOnly ? *Windows.at(&syntax) : syntax;
+    }
 
     bool IsQueryBinding(std::size_t index) const { return bool(QueryBindings.at(index)); }
     const TSelect* QueryReference(TSyntaxId expression) const {
@@ -277,6 +279,8 @@ private:
             Seen[id] = true;
             ExpressionOptions[id] = Options;
             const auto& node = Syntax.Expressions[id];
+            if (node.Filter != NoSyntax || node.NullTreatment != ENullTreatment::Default)
+                throw TUnsupportedFeature(EFeature::Window, node.Position, "aggregate FILTER and NULL treatment require native execution support");
             if (node.Lambda) {
                 if (++Depth > Settings.MaxExpansionDepth)
                     throw TResourceLimitError(node.Position, "binding scope depth limit exceeded");
@@ -305,7 +309,15 @@ private:
             if (node.Kind == ESyntaxKind::Variable) References[id] = Resolve(node.Text);
             if (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')) References[id] = Resolve(node.Text.substr(1));
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
-            WindowChildren(node, pending);
+            if (node.Window) {
+                if (node.Window->ReferenceOnly) {
+                    const auto found = WindowScope ? WindowScope->find(node.Window->Name) : TWindowNames::const_iterator{};
+                    if (!WindowScope || found == WindowScope->end())
+                        throw TFrontendError(node.Window->Position, "unknown window: " + node.Window->Name);
+                    Windows.emplace(node.Window.get(), found->second);
+                } else CheckWindow(*node.Window);
+                WindowChildren(Window(*node.Window), pending);
+            }
             if (node.Query) Select(*node.Query);
         }
     }
@@ -329,6 +341,13 @@ private:
     }
     void Select(const TSelect& query) {
         if (++Depth > Settings.MaxExpansionDepth) throw TResourceLimitError(query.Position, "binding scope depth limit exceeded");
+        TWindowNames windows;
+        for (const auto& definition : query.Windows) {
+            CheckWindow(*definition.Specification);
+            if (!windows.emplace(definition.Name, definition.Specification.get()).second)
+                throw TFrontendError(definition.Specification->Position, "duplicate window: " + definition.Name);
+        }
+        const auto* outerWindows = std::exchange(WindowScope, &windows);
         if (AllowUnnamedGroups) UnnamedGroups.insert(&query);
         CteScopes.emplace_back();
         for (const auto& cte : query.Ctes) {
@@ -347,7 +366,17 @@ private:
         Expression(query.Offset);
         for (const auto& branch : query.SetInputs) Select(*branch);
         CteScopes.pop_back();
+        WindowScope = outerWindows;
         --Depth;
+    }
+
+    static void CheckWindow(const TSyntaxWindow& window) {
+        if (!window.Name.empty())
+            throw TUnsupportedFeature(EFeature::Window, window.Position, "inherited window specification requires native execution support");
+        if (window.CompactPartition || window.Exclusion != EWindowExclusion::Default)
+            throw TUnsupportedFeature(EFeature::Window, window.Position, "compact partition and window exclusion require native execution support");
+        for (const auto& key : window.Partition) if (!key.Alias.empty())
+            throw TUnsupportedFeature(EFeature::Window, window.Position, "aliased window partition key requires native execution support");
     }
 
     const TParsedQuery& Syntax;
@@ -369,6 +398,9 @@ private:
     std::vector<std::unordered_map<std::string, const TCteBinding*>> CteScopes;
     std::unordered_map<const TSource*, const TCteBinding*> CteSources;
     std::unordered_map<const TSource*, std::string> PhysicalPaths;
+    using TWindowNames = std::unordered_map<std::string_view, const TSyntaxWindow*>;
+    const TWindowNames* WindowScope = nullptr;
+    std::unordered_map<const TSyntaxWindow*, const TSyntaxWindow*> Windows;
     std::size_t Depth = 0;
 };
 
@@ -710,7 +742,7 @@ public:
                 if (expr.Lambda) key.Binding = i;
                 for (auto child : expr.Arguments) key.Arguments.push_back(Canonical[child]);
                 if (expr.Window) {
-                    const auto& w = *expr.Window;
+                    const auto& w = Bindings.Window(*expr.Window);
                     auto canonical = [&](TSyntaxId child) {
                         if (child == NoSyntax) return NoSyntax;
                         if (child >= i) throw TFrontendError(expr.Position, "window syntax is not topologically ordered");
@@ -719,7 +751,7 @@ public:
                     };
                     std::vector<std::uint32_t> spec{static_cast<std::uint32_t>(w.Frame.Type), static_cast<std::uint32_t>(w.Frame.Begin),
                         static_cast<std::uint32_t>(w.Frame.End), canonical(w.BeginOffset), canonical(w.EndOffset), static_cast<std::uint32_t>(w.Partition.size())};
-                    for (auto child : w.Partition) spec.push_back(canonical(child));
+                    for (const auto& child : w.Partition) spec.push_back(canonical(child.Expression));
                     for (const auto& child : w.Order) { spec.push_back(canonical(child.Expression)); spec.push_back(child.Descending); }
                     key.Window = windows.emplace(std::move(spec), windows.size()).first->second;
                 }
@@ -1960,7 +1992,7 @@ private:
     TExprId Window(TSyntaxId id, TWindowContext& context) {
         if (const auto call = context.Calls.find(Canonical[id]); call != context.Calls.end()) return call->second;
         const auto& syntax = Syntax.Expressions[id];
-        const auto& spec = *syntax.Window;
+        const auto& spec = Bindings.Window(*syntax.Window);
         auto name = Lower(syntax.Text);
         if (name == "row_number") name = "rownumber";
         if (name == "dense_rank") name = "denserank";
@@ -1988,9 +2020,9 @@ private:
         if (fresh) {
             TRelation window{ERelation::Window, syntax.Position};
             std::unordered_set<TColumnId> partitions, order;
-            for (auto key : spec.Partition) {
-                if (Syntax.Expressions[key].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window partition key");
-                const auto column = materialize(key);
+            for (const auto& key : spec.Partition) {
+                if (Syntax.Expressions[key.Expression].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window partition key");
+                const auto column = materialize(key.Expression);
                 if (partitions.insert(column).second) window.GroupKeys.push_back(column);
             }
             for (const auto& key : spec.Order) {
@@ -2704,7 +2736,7 @@ private:
             const auto& node = Syntax.Expressions[id];
             if (++Nodes > Settings.MaxNodes) throw TResourceLimitError(node.Position, "table discovery expansion limit exceeded");
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
-            WindowChildren(node, pending);
+            if (node.Window) WindowChildren(Bindings.Window(*node.Window), pending);
             if (node.Query) Select(*node.Query);
             if (const auto query = Bindings.QueryReference(id)) {
                 NamedQuery(*query, node.Position);

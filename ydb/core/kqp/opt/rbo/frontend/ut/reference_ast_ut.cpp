@@ -24,6 +24,129 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(InlineWindowWithFilterAndFrame) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT SUM(x) FILTER (WHERE x > 0) OVER (
+                PARTITION COMPACT BY department AS dep ORDER BY ts DESC, id ASC
+                ROWS BETWEEN $n PRECEDING AND 1 FOLLOWING EXCLUDE TIES) FROM t;)", grammar);
+            const auto& call = Projection(syntax, 0);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[call.Filter].Text, ">");
+            UNIT_ASSERT(call.NullTreatment == ENullTreatment::Default);
+            const auto& window = *call.Window;
+            UNIT_ASSERT(window.Name.empty() && !window.ReferenceOnly && window.CompactPartition);
+            UNIT_ASSERT_VALUES_EQUAL(window.Partition[0].Alias, "dep");
+            UNIT_ASSERT_VALUES_EQUAL(window.Order.size(), 2);
+            UNIT_ASSERT(window.Order[0].Descending && !window.Order[1].Descending);
+            UNIT_ASSERT(window.Frame.Type == EWindowFrame::Rows);
+            UNIT_ASSERT(window.Frame.Begin == EWindowBound::Preceding);
+            UNIT_ASSERT(syntax.Expressions[window.BeginOffset].Kind == ESyntaxKind::Variable);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[window.BeginOffset].Text, "n");
+            UNIT_ASSERT(window.ExplicitFrameEnd && window.Frame.End == EWindowBound::Following);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[window.EndOffset].Text, "1");
+            UNIT_ASSERT(window.Exclusion == EWindowExclusion::Ties);
+        }
+    }
+
+    Y_UNIT_TEST(NamedWindowsInheritanceAndNullTreatment) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT FIRST_VALUE(x) IGNORE NULLS OVER w,
+                LAST_VALUE(x) RESPECT NULLS OVER (w), ROW_NUMBER() OVER (),
+                COUNT(*) FILTER (WHERE x > 0)
+                FROM t WINDOW base AS (PARTITION BY department),
+                w AS (base ORDER BY ts RANGE UNBOUNDED PRECEDING);)", grammar);
+            const auto& first = Projection(syntax, 0);
+            UNIT_ASSERT(first.NullTreatment == ENullTreatment::Ignore);
+            UNIT_ASSERT(first.Window->ReferenceOnly);
+            UNIT_ASSERT_VALUES_EQUAL(first.Window->Name, "w");
+            const auto& last = Projection(syntax, 1);
+            UNIT_ASSERT(last.NullTreatment == ENullTreatment::Respect);
+            UNIT_ASSERT(!last.Window->ReferenceOnly);
+            UNIT_ASSERT_VALUES_EQUAL(last.Window->Name, "w");
+            const auto& empty = *Projection(syntax, 2).Window;
+            UNIT_ASSERT(empty.Frame.Type == EWindowFrame::Default && empty.Name.empty() && empty.Partition.empty() && empty.Order.empty());
+            UNIT_ASSERT(!Projection(syntax, 3).Window && Projection(syntax, 3).Filter != NoSyntax);
+            const auto& windows = syntax.Statements[0].Query->Windows;
+            UNIT_ASSERT_VALUES_EQUAL(windows.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(windows[0].Name, "base");
+            UNIT_ASSERT_VALUES_EQUAL(windows[1].Name, "w");
+            const auto& inherited = *windows[1].Specification;
+            UNIT_ASSERT_VALUES_EQUAL(inherited.Name, "base");
+            UNIT_ASSERT(inherited.Frame.Type == EWindowFrame::Range);
+            UNIT_ASSERT(inherited.Frame.Begin == EWindowBound::UnboundedPreceding);
+            UNIT_ASSERT(!inherited.ExplicitFrameEnd && inherited.BeginOffset == NoSyntax);
+            UNIT_ASSERT(inherited.Exclusion == EWindowExclusion::Default);
+        }
+    }
+
+    Y_UNIT_TEST(WindowFrameExclusionsAndBounds) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT
+                SUM(x) OVER (GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP),
+                SUM(x) OVER (ROWS CURRENT ROW EXCLUDE CURRENT ROW),
+                SUM(x) OVER (RANGE BETWEEN 2 PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS);)", grammar);
+            const auto& groups = *Projection(syntax, 0).Window;
+            UNIT_ASSERT(groups.Frame.Type == EWindowFrame::Groups);
+            UNIT_ASSERT(groups.Frame.Begin == EWindowBound::CurrentRow);
+            UNIT_ASSERT(groups.ExplicitFrameEnd && groups.Frame.End == EWindowBound::UnboundedFollowing);
+            UNIT_ASSERT(groups.BeginOffset == NoSyntax && groups.EndOffset == NoSyntax);
+            UNIT_ASSERT(groups.Exclusion == EWindowExclusion::Group);
+            const auto& current = *Projection(syntax, 1).Window;
+            UNIT_ASSERT(current.Exclusion == EWindowExclusion::CurrentRow && !current.ExplicitFrameEnd);
+            const auto& range = *Projection(syntax, 2).Window;
+            UNIT_ASSERT(range.Exclusion == EWindowExclusion::NoOthers);
+            UNIT_ASSERT(range.ExplicitFrameEnd && range.Frame.End == EWindowBound::CurrentRow);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[range.BeginOffset].Text, "2");
+        }
+    }
+
+    Y_UNIT_TEST(AnsiWindowsHintsAndPragmas) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(--!ansi_lexer
+                PRAGMA "ns"."name" = 'a''b';
+                SELECT SUM(x) OVER "w" FROM t WITH ("hint" = 'a''b')
+                WINDOW "w" AS (ORDER BY x);)", grammar);
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].Name, "ns.name");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[0].PragmaValues[0].Text, "a'b");
+            const auto& select = *syntax.Statements[1].Query;
+            UNIT_ASSERT_VALUES_EQUAL(select.Windows[0].Name, "w");
+            const auto& reference = *syntax.Expressions[select.Projection[0].Expression].Window;
+            UNIT_ASSERT(reference.ReferenceOnly);
+            UNIT_ASSERT_VALUES_EQUAL(reference.Name, "w");
+            const auto& hint = select.Source->Options->Hints[0];
+            UNIT_ASSERT_VALUES_EQUAL(hint.Name, "hint");
+            UNIT_ASSERT_VALUES_EQUAL(hint.Values[0].Text, "a'b");
+        }
+    }
+
+    Y_UNIT_TEST(WindowNamesAndModifiersAreAdmittedAtBinding) {
+        for (const bool grammar : {false, true}) {
+            // Name lookup must not alter parsing, even for unresolved or duplicate names.
+            for (const auto* sql : {"SELECT SUM(x) OVER missing FROM t",
+                "SELECT SUM(x) OVER w FROM t WINDOW w AS (), w AS ()"}) {
+                const auto syntax = Ast(sql, grammar);
+                UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TFrontendError, sql);
+            }
+            for (const auto* sql : {"SELECT SUM(x) FILTER (WHERE x > 0) FROM t",
+                "SELECT FIRST_VALUE(x) IGNORE NULLS OVER () FROM t",
+                "SELECT SUM(x) OVER (PARTITION COMPACT BY x) FROM t",
+                "SELECT SUM(x) OVER (PARTITION BY x AS k) FROM t",
+                "SELECT SUM(x) OVER (ROWS CURRENT ROW EXCLUDE TIES) FROM t",
+                "SELECT SUM(x) OVER (w) FROM t WINDOW w AS ()"}) {
+                const auto syntax = Ast(sql, grammar);
+                UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
+                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+                    UNIT_FAIL("unsupported window semantics reached catalog I/O"); return {};
+                }), TUnsupportedFeature, sql);
+            }
+        }
+        UNIT_ASSERT(SyntaxFingerprint(Ast("SELECT SUM(x) OVER w FROM t WINDOW w AS ()", true)) !=
+            SyntaxFingerprint(Ast("SELECT SUM(x) OVER (w) FROM t WINDOW w AS ()", true)));
+        UNIT_ASSERT(SyntaxFingerprint(Ast("SELECT SUM(x) OVER (ROWS CURRENT ROW)", true)) !=
+            SyntaxFingerprint(Ast("SELECT SUM(x) OVER (ROWS BETWEEN CURRENT ROW AND CURRENT ROW)", true)));
+        UNIT_ASSERT(SyntaxFingerprint(Ast("SELECT SUM(x) FILTER(WHERE x > 0)", true)) !=
+            SyntaxFingerprint(Ast("SELECT SUM(x) FILTER(WHERE x > 1)", true)));
+    }
+
     Y_UNIT_TEST(AnsiSpellingsAndMultipleStatements) {
         for (const bool grammar : {false, true}) {
             const auto syntax = Ast("--!ansi_lexer\nEXPLAIN QUERY PLAN SELECT 'a''b' AS \"a\"\"b\"; SELECT 42ul;", grammar);

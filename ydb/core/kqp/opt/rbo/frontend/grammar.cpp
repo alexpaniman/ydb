@@ -373,8 +373,6 @@ private:
                     const bool named = Result.Expressions[value].Kind == ESyntaxKind::Column ||
                         Result.Expressions[value].Kind == ESyntaxKind::Variable;
                     auto* tail = Child(child, "invoke_expr_tail");
-                    if (tail && (Child(tail, "null_treatment") || Child(tail, "filter_clause")))
-                        Unsupported(tail, EFeature::Window, "window NULL treatment or FILTER clause");
                     std::vector<TSyntaxId> args;
                     if (Has(child, "*")) args.push_back(Add(ESyntaxKind::Star, child));
                     if (auto* list = Child(child, "named_expr_list")) {
@@ -387,9 +385,14 @@ private:
                     if (Result.Expressions[value].Kind == ESyntaxKind::Variable) function = "$" + function;
                     auto window = tail && Child(tail, "window_name_or_specification") ?
                         Window(Child(tail, "window_name_or_specification")) : nullptr;
+                    auto* filter = tail ? Child(tail, "filter_clause") : nullptr;
+                    const auto predicate = filter ? Expr(Child(filter, "expr")) : NoSyntax;
+                    auto* treatment = tail ? Child(tail, "null_treatment") : nullptr;
                     if (!named) args.insert(args.begin(), value);
                     value = Add(named ? ESyntaxKind::Call : ESyntaxKind::Invoke, node, std::move(function), std::move(args));
                     Result.Expressions[value].Window = std::move(window);
+                    Result.Expressions[value].Filter = predicate;
+                    if (treatment) Result.Expressions[value].NullTreatment = Has(treatment, "IGNORE") ? ENullTreatment::Ignore : ENullTreatment::Respect;
                     if (auto* q = Child(child, "opt_set_quantifier")) Result.Expressions[value].Distinct = Has(q, "DISTINCT");
                 } else if (Name(child) == "key_expr") {
                     const auto index = Expr(Child(child, "expr"));
@@ -662,29 +665,28 @@ private:
         if (result.Source->Any && result.Joins.empty()) Unsupported(node, EFeature::Backend, "ANY requires a JOIN");
     }
     std::shared_ptr<TSyntaxWindow> Window(TTree* node) {
+        auto result = std::make_shared<TSyntaxWindow>();
+        result->Position = Position(node);
         auto* spec = Name(node) == "window_specification" ? node : Child(node, "window_specification");
         if (!spec) {
-            const auto name = Id(Child(node, "window_name"));
-            const auto found = NamedWindows.find(name);
-            if (found == NamedWindows.end()) throw TFrontendError(Position(node), "unknown window: " + name);
-            return found->second;
+            result->Name = Id(Child(node, "window_name"));
+            result->ReferenceOnly = true;
+            return result;
         }
         auto* details = Child(spec, "window_specification_details");
-        if (Child(details, "existing_window_name")) Unsupported(details, EFeature::Window, "inherited window specification");
-        auto result = std::make_shared<TSyntaxWindow>();
+        if (auto* base = Child(details, "existing_window_name")) result->Name = Id(Child(base, "window_name"));
         if (auto* partition = Child(details, "window_partition_clause")) {
-            if (Has(partition, "COMPACT")) Unsupported(partition, EFeature::Window, "compact window partition");
-            for (auto* key : Children(Child(partition, "named_expr_list"), "named_expr")) {
-                if (Child(key, "an_id_or_type")) Unsupported(key, EFeature::Window, "aliased window partition key");
-                result->Partition.push_back(Expr(Child(key, "expr")));
-            }
+            result->CompactPartition = Has(partition, "COMPACT");
+            for (auto* key : Children(Child(partition, "named_expr_list"), "named_expr")) result->Partition.push_back(Named(key));
         }
         if (auto* order = Child(details, "window_order_clause")) {
             for (auto* key : Children(Child(Child(order, "order_by_clause"), "sort_specification_list"), "sort_specification"))
                 result->Order.push_back({Expr(Child(key, "expr")), Has(key, "DESC")});
         }
         if (auto* frame = Child(details, "window_frame_clause")) {
-            if (Child(frame, "window_frame_exclusion")) Unsupported(frame, EFeature::Window, "window frame exclusion");
+            if (auto* exclusion = Child(frame, "window_frame_exclusion"))
+                result->Exclusion = Has(exclusion, "CURRENT") ? EWindowExclusion::CurrentRow : Has(exclusion, "GROUP") ? EWindowExclusion::Group :
+                    Has(exclusion, "TIES") ? EWindowExclusion::Ties : EWindowExclusion::NoOthers;
             auto* units = Child(frame, "window_frame_units");
             result->Frame.Type = Has(units, "ROWS") ? EWindowFrame::Rows : Has(units, "RANGE") ? EWindowFrame::Range : EWindowFrame::Groups;
             auto bound = [&](TTree* node, EWindowBound& kind, TSyntaxId& offset) {
@@ -698,6 +700,7 @@ private:
             };
             auto* extent = Child(frame, "window_frame_extent");
             if (auto* between = Child(extent, "window_frame_between")) {
+                result->ExplicitFrameEnd = true;
                 const auto bounds = Children(between, "window_frame_bound");
                 bound(bounds[0], result->Frame.Begin, result->BeginOffset);
                 bound(bounds[1], result->Frame.End, result->EndOffset);
@@ -772,24 +775,14 @@ private:
         }
         if (name != "select_core") Unsupported(node, EFeature::Subquery, "select form " + std::string(name));
         if (Has(node, "STREAM") || Has(node, "WITHOUT")) Unsupported(node, EFeature::Statement, "STREAM or WITHOUT");
-        // Resolve each query's named specifications before its calls. Their
-        // expression IDs then precede the calls, preserving the native DAG's
-        // topological construction and normal window deduplication.
-        auto outerWindows = std::exchange(NamedWindows, {});
-        struct TRestoreWindows {
-            decltype(NamedWindows)& Current;
-            decltype(NamedWindows)& Saved;
-            ~TRestoreWindows() { Current = std::move(Saved); }
-        } restoreWindows{NamedWindows, outerWindows};
+        auto result = std::make_shared<TSelect>(); result->Position = Position(node);
+        // Definitions precede their call operands in the syntax arena. Keep
+        // references as syntax; lexical lookup belongs to native binding.
         if (auto* clause = Child(node, "window_clause")) {
             for (auto* definition : Children(Child(clause, "window_definition_list"), "window_definition")) {
-                const auto name = Id(Child(definition, "new_window_name"));
-                auto window = Window(Child(definition, "window_specification"));
-                if (!NamedWindows.emplace(name, std::move(window)).second)
-                    throw TFrontendError(Position(definition), "duplicate window: " + name);
+                result->Windows.push_back({Id(Child(definition, "new_window_name")), Window(Child(definition, "window_specification"))});
             }
         }
-        auto result = std::make_shared<TSelect>(); result->Position = Position(node);
         result->Distinct = Has(Child(node, "opt_set_quantifier"), "DISTINCT");
         for (auto* column : Children(node, "result_column")) result->Projection.push_back(Named(column));
         const auto sources = Children(node, "join_source");
@@ -948,7 +941,6 @@ private:
     const TPositions& Positions;
     const TParseSettings& Settings;
     TParsedQuery Result;
-    std::unordered_map<std::string, std::shared_ptr<TSyntaxWindow>> NamedWindows;
 };
 
 template<class TLexer>
@@ -1014,6 +1006,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     std::ostringstream out;
     auto text = [&](std::string_view value) { out << value.size() << ':' << value; };
     std::function<void(const TSelect&)> select;
+    std::function<void(const TSyntaxWindow&)> window;
     std::function<void(TSyntaxId)> expr = [&](TSyntaxId id) {
         if (id == NoSyntax) { out << '-'; return; }
         const auto& node = query.Expressions.at(id);
@@ -1024,14 +1017,8 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
             out << "locals["; for (const auto& name : node.Lambda->Locals) text(name); out << ']';
         }
         for (auto arg : node.Arguments) expr(arg);
-        if (node.Window) {
-            const auto& w = *node.Window;
-            out << "window[" << static_cast<int>(w.Frame.Type) << ',' << static_cast<int>(w.Frame.Begin) << ',' << static_cast<int>(w.Frame.End) << ':';
-            expr(w.BeginOffset); expr(w.EndOffset);
-            out << '['; for (auto key : w.Partition) expr(key); out << ']';
-            for (const auto& key : w.Order) { out << key.Descending; expr(key.Expression); }
-            out << ']';
-        }
+        out << "modifiers[" << static_cast<int>(node.NullTreatment); expr(node.Filter); out << ']';
+        if (node.Window) window(*node.Window);
         if (node.Query) select(*node.Query);
         out << ')';
     };
@@ -1055,6 +1042,14 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     auto named = [&](const std::vector<TNamedExpr>& values) {
         out << '['; for (const auto& value : values) { expr(value.Expression); text(value.Alias); } out << ']';
     };
+    window = [&](const TSyntaxWindow& w) {
+        out << "window[" << w.ReferenceOnly; text(w.Name);
+        out << w.CompactPartition << w.ExplicitFrameEnd << static_cast<int>(w.Exclusion)
+            << ',' << static_cast<int>(w.Frame.Type) << ',' << static_cast<int>(w.Frame.Begin) << ',' << static_cast<int>(w.Frame.End) << ':';
+        expr(w.BeginOffset); expr(w.EndOffset); named(w.Partition);
+        for (const auto& key : w.Order) { out << key.Descending; expr(key.Expression); }
+        out << ']';
+    };
     select = [&](const TSelect& value) {
         out << '{' << value.Distinct;
         for (const auto& cte : value.Ctes) { text(cte.Name); out << "["; for (const auto& name : cte.Columns) text(name); out << "]"; select(*cte.Query); }
@@ -1064,6 +1059,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
             for (const auto& column : join.Using) text(column);
         }
         named(value.Projection); expr(value.Where); named(value.GroupBy); expr(value.Having);
+        for (const auto& definition : value.Windows) { text(definition.Name); window(*definition.Specification); }
         out << '['; for (const auto& set : value.GroupingSets) { out << '['; for (auto key : set) out << key << ','; out << ']'; } out << ']';
         for (const auto& key : value.OrderBy) { out << key.Descending; expr(key.Expression); }
         expr(value.Limit); expr(value.Offset);
