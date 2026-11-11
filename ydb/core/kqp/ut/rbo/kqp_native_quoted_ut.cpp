@@ -1,4 +1,5 @@
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
+#include <ydb/core/kqp/opt/rbo/kqp_expression.h>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -19,6 +20,26 @@ TKikimrSettings Settings(bool native) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeQuotedRuntime) {
+    Y_UNIT_TEST(NativeDiagnosticStringsAndPathsNeedNoBackendContext) {
+        using namespace NFrontend;
+        auto arena = std::make_shared<TExpressionArena>();
+        TInfoUnitRegistry names;
+        const auto check = [&](TExprId root, TStringBuf expected) {
+            const auto size = arena->Size();
+            const auto expression = TExpression::FromNative(arena, root);
+            UNIT_ASSERT_VALUES_EQUAL(expression.ToString(), expected);
+            UNIT_ASSERT_VALUES_EQUAL(expression.ToExplainString(names), expected);
+            UNIT_ASSERT_VALUES_EQUAL(arena->Size(), size);
+        };
+        check(arena->Literal({ETypeKind::String}, std::string("text")), "\"text\"");
+        check(arena->Literal({ETypeKind::String, true}, {}), "NULL");
+        check(arena->Literal({ETypeKind::String}, std::string("\0\xff", 2)), "\"\\x00\\xFF\"");
+        check(arena->Literal({ETypeKind::Utf8}, std::string("é")), "\"\\xC3\\xA9\"");
+        check(arena->JsonValue(arena->Parameter("json", {ETypeKind::Json}), "$.key"), "JsonValue($json, \"$.key\")");
+        check(arena->Like(arena->Parameter("text", {ETypeKind::String}),
+            arena->Literal({ETypeKind::String}, std::string("a#%")), "#"), "Like($text, \"a#%\", \"#\")");
+    }
+
     Y_UNIT_TEST_TWIN(AnsiQuotedNamesBindAndExecuteWithExactCase, Native) {
         TKikimrRunner kikimr(Settings(Native));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();

@@ -29,6 +29,27 @@ void AppendUtf8(std::uint32_t value, std::string& output) {
 
 } // namespace
 
+std::string QuoteStringLiteral(std::string_view value) {
+    constexpr char hex[] = "0123456789ABCDEF";
+    std::string result;
+    result.reserve(value.size() + 2);
+    result += '"';
+    for (const unsigned char byte : value) {
+        switch (byte) {
+            case '"': result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:
+                if (byte >= 0x20 && byte < 0x7f) result += static_cast<char>(byte);
+                else { result += "\\x"; result += hex[byte >> 4]; result += hex[byte & 15]; }
+        }
+    }
+    result += '"';
+    return result;
+}
+
 std::size_t AppendQuotedEscape(std::string_view text, std::string& output, TSourcePosition position) {
     if (text.empty()) throw TFrontendError(position, "expected string escape");
     const char escape = text.front();

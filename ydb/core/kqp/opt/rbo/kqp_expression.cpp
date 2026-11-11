@@ -1,18 +1,13 @@
 #include "kqp_expression.h"
 #include "kqp_rbo_utils.h"
-#include <yql/essentials/ast/yql_ast_escaping.h>
-#include <util/stream/str.h>
+#include "frontend/quoted.h"
 #include <array>
 #include <unordered_set>
 
 namespace NKikimr::NKqp {
 namespace {
 TString QuoteString(TStringBuf value) {
-    TStringStream out;
-    out << '"';
-    EscapeArbitraryAtom(value, '"', &out);
-    out << '"';
-    return out.Str();
+    return TString(NFrontend::QuoteStringLiteral(std::string_view(value.data(), value.size())));
 }
 
 bool IsBinaryCallable(TStringBuf callable) {
@@ -233,8 +228,9 @@ std::optional<TString> FormatNative(const TNativeArena& arena, TNativeId id,
         return registry ? registry->GetDisplayName(node.ColumnId) : TStringBuilder() << "$" << node.ColumnId;
     }
     if (node.Op == TNativeOp::Literal) {
-        const auto value = NFrontend::FormatValue({node.Type, node.Value});
-        return node.Type.IsString() ? QuoteString(TStringBuf(value.data(), value.size())) : TString(value);
+        if (node.Type.IsString()) if (const auto* value = std::get_if<std::string>(&node.Value))
+            return QuoteString(TStringBuf(value->data(), value->size()));
+        return TString(NFrontend::FormatValue({node.Type, node.Value}));
     }
     if (node.Op == TNativeOp::Parameter) {
         return TStringBuilder() << "$" << node.Name;

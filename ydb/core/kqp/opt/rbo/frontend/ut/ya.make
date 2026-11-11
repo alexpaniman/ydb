@@ -12,6 +12,7 @@ SRCS(
     row_expression_ut.cpp
     expression_ut.cpp
     parser_ut.cpp
+    quoted_ut.cpp
     grammar_ut.cpp
     compiler_ut.cpp
 )
