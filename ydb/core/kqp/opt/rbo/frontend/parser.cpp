@@ -259,7 +259,7 @@ private:
 
     const TToken& Token(std::size_t ahead = 0) const { return Tokens[std::min(Index + ahead, Tokens.size() - 1)]; }
     bool End() const { return Token().Kind == EToken::End; }
-    bool Is(std::string_view text, std::size_t ahead = 0) const {
+    [[gnu::always_inline]] inline bool Is(std::string_view text, std::size_t ahead = 0) const {
         const auto& token = Token(ahead);
         return (token.Kind == EToken::Identifier && (token.Word == text ||
             (token.Word.empty() && token.Text.size() == text.size() && CompareKeyword(text, token.Text) == 0))) ||
