@@ -122,7 +122,9 @@ def main():
         summary[workload] = dict(paired_queries=len(paired), failures=failures,
             geomean_request_duration_after_over_before=math.exp(statistics.mean(map(math.log,ratios))) if ratios else None)
     (args.out / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
-    print(json.dumps(summary, indent=2))
+    for workload, result in summary.items():
+        print(json.dumps(dict(result, workload=workload,
+            failures={mode: len(queries) for mode, queries in result['failures'].items()})))
     failed = [r for b in manifest['batches'] if b['variant'] in native_modes for r in b['measurements'] if not r['success']]
     failed_batches = [b for b in manifest['batches'] if b['variant'] in native_modes and b['returncode']]
     if failed or failed_batches:
