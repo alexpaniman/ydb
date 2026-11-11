@@ -48,6 +48,14 @@ const std::string& PragmaValue(const TStatement& statement) {
     return statement.PragmaValues.empty() ? empty : statement.PragmaValues.front();
 }
 
+bool PragmaBoolean(const TStatement& statement, bool emptyEnabled = false) {
+    const auto value = Lower(PragmaValue(statement));
+    if ((emptyEnabled && value.empty()) || value == "true" || value == "t" || value == "yes" || value == "y" ||
+        value == "on" || value == "1" || value == "da") return true;
+    if (value == "false" || value == "f" || value == "no" || value == "n" || value == "off" || value == "0" || value == "net") return false;
+    throw TFrontendError(statement.Position, "invalid Boolean value for pragma " + statement.Name);
+}
+
 void CheckWarningPragma(const TStatement& statement) {
     if (statement.PragmaValues.size() != 2)
         throw TFrontendError(statement.Position, "warning pragma requires action and issue code");
@@ -112,11 +120,7 @@ std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
         if (error != std::errc{} || end != value.data() + value.size()) throw badValue();
         return TPlannerSetting{kind, number, statement.Position};
     }
-    const auto value = Lower(argument);
-    const bool enabled = value.empty() || value == "true" || value == "t" || value == "yes" || value == "y" ||
-        value == "on" || value == "1" || value == "da";
-    if (!enabled && value != "false" && value != "f" && value != "no" && value != "n" && value != "off" && value != "0" && value != "net")
-        throw badValue();
+    const bool enabled = PragmaBoolean(statement, true);
     if (kind == S::OptFallbackToLegacyOptimizer && enabled)
         throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "native plans cannot request fallback to the YQL optimizer");
     return TPlannerSetting{kind, enabled, statement.Position};
@@ -137,27 +141,21 @@ class TGlobalBindings {
 public:
     static constexpr std::uint32_t Unknown = std::numeric_limits<std::uint32_t>::max();
     static constexpr std::uint32_t Parameter = Unknown - 1;
+    enum EOption : std::uint8_t { AnsiIn = 1, AnsiCurrentRow = 2, UnicodeLiterals = 4, ClassicDivision = 8, CheckedOps = 16 };
 
     TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
         : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()),
-          WindowDefaults(syntax.Expressions.size(), settings.AnsiCurrentRow), AnsiCurrentRow(settings.AnsiCurrentRow),
+          Options((settings.AnsiIn ? AnsiIn : 0) | (settings.AnsiCurrentRow ? AnsiCurrentRow : 0) |
+              (settings.UnicodeLiterals ? UnicodeLiterals : 0) | (settings.ClassicDivision ? ClassicDivision : 0) |
+              (settings.CheckedOps ? CheckedOps : 0)),
+          ExpressionOptions(syntax.Expressions.size(), Options), CapturedPragmas(syntax.Statements.size()),
           QueryBindings(syntax.Statements.size()), Prefix(settings.TablePathPrefix) {
         Definitions.reserve(syntax.Statements.size());
         for (const auto& statement : syntax.Statements) Definitions.push_back(statement.Expression);
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
-            if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") {
-                if (statement.PragmaValues.empty())
-                    throw TFrontendError(statement.Position, "TablePathPrefix requires one string value");
-                Prefix = PragmaValue(statement);
-            }
-            if (statement.Kind == EStatementKind::Pragma && statement.PragmaValues.empty()) {
-                const auto name = Lower(statement.Name);
-                if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
-                if (name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr")
-                    AllowUnnamedGroups = name == "yqlselectallowunnamedgroupbyexpr";
-            }
+            if (statement.Kind == EStatementKind::Pragma) CapturedPragmas[i] = ApplyPragma(statement);
             Expression(statement.Expression);
             if (statement.Query) Select(*statement.Query);
             if (statement.Write) {
@@ -187,7 +185,9 @@ public:
     }
     const std::vector<std::uint32_t>& LambdaBindings(TSyntaxId lambda) const { return Lambdas.at(lambda); }
     bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
-    bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
+    bool Uses(TSyntaxId expression, EOption option) const { return ExpressionOptions.at(expression) & option; }
+    std::uint8_t Flags(TSyntaxId expression) const { return ExpressionOptions.at(expression); }
+    bool IsCapturedPragma(std::size_t statement) const { return CapturedPragmas.at(statement); }
     bool AllowsUnnamedGroups(const TSelect& query) const { return UnnamedGroups.contains(&query); }
     std::uint32_t SourceBinding(const TSource& source) const { return Sources.at(&source); }
     const TCteBinding* SourceCte(const TSource& source) const {
@@ -216,6 +216,41 @@ public:
     }
 
 private:
+    // Interpret expression pragmas once from the owning statement syntax.
+    // Capture the resulting options alongside lexical references at definitions,
+    // including query and lambda bodies that are bound later.
+    bool ApplyPragma(const TStatement& statement) {
+        const auto name = Lower(statement.Name);
+        if (name == "tablepathprefix") {
+            if (statement.PragmaValues.empty()) throw TFrontendError(statement.Position, "TablePathPrefix requires one string value");
+            Prefix = PragmaValue(statement);
+            return true;
+        }
+        if (name == "classicdivision" || name == "checkedops") {
+            if (statement.PragmaValues.size() != 1) throw TFrontendError(statement.Position, statement.Name + " requires one Boolean string value");
+            const bool enabled = PragmaBoolean(statement);
+            const auto flag = name == "classicdivision" ? ClassicDivision : CheckedOps;
+            Options = enabled ? Options | flag : Options & ~flag;
+            return true;
+        }
+        static constexpr std::pair<std::string_view, EOption> flags[]{
+            {"ansicurrentrow", AnsiCurrentRow}, {"ansiinforemptyornullableitemscollections", AnsiIn},
+            {"unicodeliterals", UnicodeLiterals}};
+        const bool disabled = name.starts_with("disable");
+        const auto flagName = std::string_view(name).substr(disabled ? 7 : 0);
+        for (const auto& [label, flag] : flags) if (flagName == label) {
+            if (!statement.PragmaValues.empty()) return false;
+            Options = disabled ? Options & ~flag : Options | flag;
+            return true;
+        }
+        if (flagName == "yqlselectallowunnamedgroupbyexpr") {
+            if (!statement.PragmaValues.empty()) return false;
+            AllowUnnamedGroups = !disabled;
+            return true;
+        }
+        return false;
+    }
+
     std::uint32_t Resolve(const std::string& name) const {
         for (auto scope = LocalScopes.rbegin(); scope != LocalScopes.rend(); ++scope)
             if (const auto found = scope->find(name); found != scope->end()) return found->second;
@@ -229,6 +264,7 @@ private:
             const auto id = pending.back(); pending.pop_back();
             if (Seen.at(id)) continue;
             Seen[id] = true;
+            ExpressionOptions[id] = Options;
             const auto& node = Syntax.Expressions[id];
             if (node.Lambda) {
                 if (++Depth > Settings.MaxExpansionDepth)
@@ -255,7 +291,6 @@ private:
                 --Depth;
                 continue;
             }
-            if (node.Window) WindowDefaults[id] = AnsiCurrentRow;
             if (node.Kind == ESyntaxKind::Variable) References[id] = Resolve(node.Text);
             if (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')) References[id] = Resolve(node.Text.substr(1));
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
@@ -305,8 +340,9 @@ private:
     const TBindSettings& Settings;
     std::vector<std::uint32_t> References;
     std::vector<bool> Seen;
-    std::vector<bool> WindowDefaults;
-    bool AnsiCurrentRow;
+    std::uint8_t Options;
+    std::vector<std::uint8_t> ExpressionOptions;
+    std::vector<bool> CapturedPragmas;
     bool AllowUnnamedGroups = false;
     std::unordered_set<const TSelect*> UnnamedGroups;
     std::unordered_map<std::string, std::uint32_t> Names;
@@ -494,13 +530,14 @@ struct TSyntaxKey {
     std::uint32_t Binding;
     const TSelect* Query;
     std::uint32_t Window = NoSyntax;
+    std::uint8_t Options = 0;
     bool operator==(const TSyntaxKey&) const = default;
 };
 
 struct TSyntaxHash {
     std::size_t operator()(const TSyntaxKey& key) const {
         std::size_t value = std::hash<std::string>{}(key.Text) ^ static_cast<unsigned>(key.Kind) ^ key.Distinct ^ key.Binding;
-        value ^= std::hash<const TSelect*>{}(key.Query) ^ key.Window;
+        value ^= std::hash<const TSelect*>{}(key.Query) ^ key.Window ^ key.Options;
         for (auto arg : key.Arguments) value ^= arg + 0x9e3779b9 + (value << 6) + (value >> 2);
         return value;
     }
@@ -526,8 +563,9 @@ public:
     std::uint32_t Get(TSyntaxId id) {
         if (const auto found = Cache.find(id); found != Cache.end()) return found->second;
         const auto& node = Syntax.Expressions[id];
-        const bool normalize = (node.Kind == ESyntaxKind::Call && !node.Text.starts_with('$')) || node.Kind == ESyntaxKind::Cast;
+        const bool normalize = (node.Kind == ESyntaxKind::Call && !node.Text.starts_with('$')) || node.Kind == ESyntaxKind::Cast || node.Kind == ESyntaxKind::BitCast;
         TSyntaxKey key{node.Kind, normalize ? Lower(node.Text) : node.Text, {}, node.Distinct, Bindings[id], node.Query.get(), Windows[id]};
+        key.Options = Bindings.Flags(id);
         if (node.Lambda) key.Binding = id;
         if (node.Kind == ESyntaxKind::Column) if (const auto* column = Scope.FindUnambiguous(node.Text)) {
             key.Text.clear(); key.Binding = column->Id;
@@ -615,7 +653,7 @@ struct TExprContext {
 class TBinder {
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), AnsiIn(settings.AnsiIn), Values(syntax.Statements.size())
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
@@ -643,8 +681,9 @@ public:
                 window = window || ContainsWindow[child];
             }
             if (hasWindows) {
-                const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
+                const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast || expr.Kind == ESyntaxKind::BitCast;
                 TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
+                key.Options = Bindings.Flags(i);
                 if (expr.Lambda) key.Binding = i;
                 for (auto child : expr.Arguments) key.Arguments.push_back(Canonical[child]);
                 if (expr.Window) {
@@ -736,7 +775,7 @@ public:
                     throw TUnsupportedFeature(EFeature::Statement, statement.Position, "USE is not supported; resolve table paths through the catalog");
                 case EStatementKind::Pragma: {
                     const auto name = Lower(statement.Name);
-                    if (name == "tablepathprefix") { /* Captured with each source at its declaration. */ }
+                    if (Bindings.IsCapturedPragma(index)) { /* Applied at each definition site. */ }
                     else if (name == "warning") CheckWarningPragma(statement);
                     else if (name == "yqlselect" && Lower(PragmaValue(statement)) == "force") {
                         // This selects relational translation, which is intrinsic here.
@@ -744,11 +783,6 @@ public:
                         // Comma joins have one unambiguous cross-product meaning.
                     } else if ((name == "orderedcolumns" || name == "disableorderedcolumns") && statement.PragmaValues.empty()) {
                         orderedColumns = name == "orderedcolumns";
-                    } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.PragmaValues.empty()) {
-                        AnsiIn = name == "ansiinforemptyornullableitemscollections";
-                    } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
-                            name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr") && statement.PragmaValues.empty()) {
-                        // Captured with the syntax at its definition site.
                     } else if (auto setting = PlannerSetting(statement)) Program.PlannerSettings.push_back(std::move(*setting));
                     else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
                     break;
@@ -1907,7 +1941,7 @@ private:
             using B = EWindowBound;
             using F = EWindowFrame;
             if (frame.Type == F::Default) {
-                frame.Type = !window.SortKeys.empty() && Bindings.WindowUsesAnsi(id) ? F::Range : F::Rows;
+                frame.Type = !window.SortKeys.empty() && Bindings.Uses(id, TGlobalBindings::AnsiCurrentRow) ? F::Range : F::Rows;
                 frame.End = window.SortKeys.empty() ? B::UnboundedFollowing : B::CurrentRow;
             }
             if (frame.Begin == B::UnboundedFollowing || frame.End == B::UnboundedPreceding ||
@@ -1969,13 +2003,13 @@ private:
                 return type;
             }
             const auto& argument = Syntax.Expressions[syntax.Arguments[0]];
-            if (name == "datatype" && argument.Kind == ESyntaxKind::String)
+            if (name == "datatype" && IsStringLiteral(argument.Kind))
                 return ParseType(argument.Text, argument.Position);
         }
         throw TUnsupportedFeature(EFeature::Type, syntax.Position, "unsupported native type constructor");
     }
 
-    TExprId Integer(const TSyntaxExpr& syntax, bool negative = false) {
+    TExprId Integer(const TSyntaxExpr& syntax, bool negative = false, bool checked = false) {
         std::string_view value = syntax.Text;
         int radix = 10;
         if (value.size() > 2 && value[0] == '0') {
@@ -2006,11 +2040,12 @@ private:
         }
         if (negative && !unsignedValue) throw TFrontendError(syntax.Position, "negative integer literal is out of range");
         auto literal = Program.Expressions.Literal(type, number, syntax.Position);
-        return negative ? Program.Expressions.Unary(EOpcode::Negate, literal, syntax.Position) : literal;
+        return !negative ? literal : checked ? Program.Expressions.CheckedNegate(literal, syntax.Position) :
+            Program.Expressions.Unary(EOpcode::Negate, literal, syntax.Position);
     }
 
-    TExprId InResult(TExprId lookup, TExprId result, TSourcePosition pos) {
-        if (AnsiIn) return result;
+    TExprId InResult(TExprId lookup, TExprId result, TSourcePosition pos, bool ansi) {
+        if (ansi) return result;
         auto& arena = Program.Expressions;
         // Legacy SQL treats a NULL lookup as unknown even for an empty set;
         // NULL items alone never make a non-NULL lookup unknown.
@@ -2064,7 +2099,12 @@ private:
                 if (!stream || !stream.eof() || !std::isfinite(number)) throw TFrontendError(syntax.Position, "invalid floating point literal");
                 result = arena.Literal({single ? ETypeKind::Float : ETypeKind::Double}, number, syntax.Position); break;
             }
-            case ESyntaxKind::String: result = arena.Literal({ETypeKind::String}, syntax.Text, syntax.Position); break;
+            case ESyntaxKind::String: case ESyntaxKind::ByteString: case ESyntaxKind::Utf8String: {
+                const bool unicode = syntax.Kind == ESyntaxKind::Utf8String ||
+                    (syntax.Kind == ESyntaxKind::String && Bindings.Uses(id, TGlobalBindings::UnicodeLiterals));
+                result = arena.Literal({unicode ? ETypeKind::Utf8 : ETypeKind::String}, syntax.Text, syntax.Position);
+                break;
+            }
             case ESyntaxKind::Column: {
                 const auto column = ResolveColumn(context, syntax.Text, syntax.Position);
                 if (!column) {
@@ -2084,12 +2124,13 @@ private:
             }
             case ESyntaxKind::Unary: {
                 if (syntax.Text == "-" && Syntax.Expressions[syntax.Arguments[0]].Kind == ESyntaxKind::Integer) {
-                    result = Integer(Syntax.Expressions[syntax.Arguments[0]], true);
+                    result = Integer(Syntax.Expressions[syntax.Arguments[0]], true, Bindings.Uses(id, TGlobalBindings::CheckedOps));
                     break;
                 }
                 auto arg = Expr(syntax.Arguments[0], context);
                 if (syntax.Text == "+") { if (!arena[arg].Type.IsNumeric()) throw TFrontendError(syntax.Position, "unary + expects a number"); result = arg; }
-                else if (syntax.Text == "-") result = arena.Unary(EOpcode::Negate, arg, syntax.Position);
+                else if (syntax.Text == "-") result = Bindings.Uses(id, TGlobalBindings::CheckedOps)
+                    ? arena.CheckedNegate(arg, syntax.Position) : arena.Unary(EOpcode::Negate, arg, syntax.Position);
                 else if (syntax.Text == "~") result = arena.Unary(EOpcode::BitNot, arg, syntax.Position);
                 else if (syntax.Text == "NOT") result = arena.Unary(EOpcode::Not, arg, syntax.Position);
                 else if (syntax.Text == "IS NULL") result = arena.Unary(EOpcode::IsNull, arg, syntax.Position);
@@ -2118,15 +2159,26 @@ private:
                     result = arena.Binary(EOpcode::NotEqual, left, right, syntax.Position);
                 }
                 else if (syntax.Text == "??") { const TExprId args[]{left, right}; result = arena.Coalesce(args, syntax.Position); }
-                else if (auto it = ops.find(syntax.Text); it != ops.end()) result = arena.Binary(it->second, left, right, syntax.Position);
+                else if (auto it = ops.find(syntax.Text); it != ops.end()) {
+                    const auto op = it->second;
+                    if (op == EOpcode::Divide && !Bindings.Uses(id, TGlobalBindings::ClassicDivision))
+                        left = arena.Cast(left, {ETypeKind::Double}, syntax.Position);
+                    const bool arithmetic = op == EOpcode::Add || op == EOpcode::Subtract || op == EOpcode::Multiply ||
+                        op == EOpcode::Divide || op == EOpcode::Modulo;
+                    result = arithmetic && Bindings.Uses(id, TGlobalBindings::CheckedOps)
+                        ? arena.CheckedBinary(op, left, right, syntax.Position) : arena.Binary(op, left, right, syntax.Position);
+                }
                 else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "unsupported binary operator: " + syntax.Text);
                 break;
             }
+            case ESyntaxKind::BitCast:
+                result = arena.BitCast(Expr(syntax.Arguments[0], context), arena.ParseTypeName(syntax.Text, syntax.Position), syntax.Position);
+                break;
             case ESyntaxKind::Cast: {
                 const auto type = arena.ParseTypeName(syntax.Text, syntax.Position);
                 const auto target = type.Kind == ETypeKind::List ? arena.ListItem(type) : type;
                 if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
-                    target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal &&
+                    target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal && target.Kind != ETypeKind::Tuple &&
                     !target.IsDate() && !target.IsInterval() && target.Kind != ETypeKind::Uuid)
                     throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "explicit cast target is outside the native scalar profile");
                 result = arena.Cast(Expr(syntax.Arguments[0], context), type, syntax.Position);
@@ -2186,18 +2238,18 @@ private:
                     const auto root = Map(query.Root, std::move(conversions), syntax.Position);
                     const auto binding = Column("in", {}, type, syntax.Position);
                     Program.Subplans.emplace(binding, TSubplan{root, resultColumn, ESubquery::In, lookup});
-                    result = InResult(Access(ScopeColumn(lookup), syntax.Position), Access(ScopeColumn(binding), syntax.Position), syntax.Position);
+                    result = InResult(Access(ScopeColumn(lookup), syntax.Position), Access(ScopeColumn(binding), syntax.Position), syntax.Position, Bindings.Uses(id, TGlobalBindings::AnsiIn));
                     break;
                 }
                 if (syntax.Text == "collection") {
-                    result = arena.InCollection(value, Expr(syntax.Arguments.at(1), context), AnsiIn, syntax.Position);
+                    result = arena.InCollection(value, Expr(syntax.Arguments.at(1), context), Bindings.Uses(id, TGlobalBindings::AnsiIn), syntax.Position);
                     break;
                 }
                 if (syntax.Text == "list") {
                     std::vector<TExprId> items;
                     items.reserve(syntax.Arguments.size() - 1);
                     for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) items.push_back(Expr(syntax.Arguments[i], context));
-                    result = arena.InCollection(value, arena.Collection(items, true, syntax.Position), AnsiIn, syntax.Position);
+                    result = arena.InCollection(value, arena.Collection(items, true, syntax.Position), Bindings.Uses(id, TGlobalBindings::AnsiIn), syntax.Position);
                     break;
                 }
                 result = arena.Literal({ETypeKind::Bool}, false, syntax.Position);
@@ -2206,7 +2258,7 @@ private:
                     const auto equal = arena.Binary(EOpcode::Equal, value, item, syntax.Position);
                     result = arena.Binary(EOpcode::Or, result, equal, syntax.Position);
                 }
-                result = InResult(value, result, syntax.Position);
+                result = InResult(value, result, syntax.Position, Bindings.Uses(id, TGlobalBindings::AnsiIn));
                 break;
             }
             case ESyntaxKind::Lambda:
@@ -2258,7 +2310,7 @@ private:
                         if (atom.Kind != ESyntaxKind::Call || Lower(atom.Text) != "asatom" || atom.Arguments.size() != 1)
                             throw TUnsupportedFeature(EFeature::Expression, atom.Position, "SqlIn option requires a literal atom");
                         const auto& text = Syntax.Expressions[atom.Arguments[0]];
-                        if (text.Kind != ESyntaxKind::String || text.Text != "ansi")
+                        if (!IsStringLiteral(text.Kind) || text.Text != "ansi")
                             throw TUnsupportedFeature(EFeature::Expression, text.Position, "unsupported SqlIn option");
                         ansi = true;
                     }
@@ -2391,7 +2443,6 @@ private:
     TGlobalBindings Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
-    bool AnsiIn;
     std::vector<std::uint32_t> Canonical;
     std::vector<std::uint32_t> CanonicalWindows;
     std::vector<bool> ContainsAggregate;
@@ -2761,7 +2812,7 @@ std::string_view SupportManifest() {
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["warning(disable, issue-code)","OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"pragmas":["warning(disable, issue-code)","OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","UnicodeLiterals","DisableUnicodeLiterals","ClassicDivision","CheckedOps","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
 "planner_pragmas":{"prefixes":["ydb","kikimr"],
 "boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptEnableInplaceUpdate","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
 "uint32":["CostBasedOptimizationLevel","DqChannelVersion"],

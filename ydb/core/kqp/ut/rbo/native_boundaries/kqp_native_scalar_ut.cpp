@@ -5,6 +5,41 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(CheckedArithmeticAndBitCastExecuteWithoutSemanticPasses) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        using O = EOpcode;
+        for (const auto kind : {K::Int8, K::Int16, K::Int32, K::Int64, K::Uint8, K::Uint16, K::Uint32, K::Uint64})
+        for (const bool optional : {false, true}) {
+            const TType type{kind, optional};
+            const auto width = kind == K::Int8 || kind == K::Uint8 ? 8 : kind == K::Int16 || kind == K::Uint16 ? 16 :
+                kind == K::Int32 || kind == K::Uint32 ? 32 : 64;
+            const auto maximum = (static_cast<unsigned __int128>(1) << (width - type.IsSigned())) - 1;
+            std::vector<TScalar> values = type.IsSigned()
+                ? std::vector<TScalar>{std::int64_t{0}, std::int64_t{1}, std::int64_t{-1},
+                    static_cast<std::int64_t>(maximum), static_cast<std::int64_t>(-static_cast<__int128>(maximum) - 1)}
+                : std::vector<TScalar>{std::uint64_t{0}, std::uint64_t{1}, static_cast<std::uint64_t>(maximum)};
+            if (optional) values.emplace_back();
+            for (const auto& a : values) {
+                TExpressionArena arena;
+                const auto left = arena.Literal(type, a);
+                CheckScalar(arena, arena.CheckedNegate(left), "checked negate width/overflow/null");
+                for (const auto target : {K::Int8, K::Uint8, K::Int64, K::Uint64})
+                    CheckScalar(arena, arena.BitCast(left, {target}), "bitcast width/signedness/null");
+                for (const auto& b : values)
+                for (const auto op : {O::Add, O::Subtract, O::Multiply, O::Divide, O::Modulo})
+                    CheckScalar(arena, arena.CheckedBinary(op, left, arena.Literal(type, b)), "checked arithmetic width/overflow/null");
+            }
+        }
+        for (const auto* sql : {"SELECT BITCAST(TRUE AS Uint8)", "SELECT BITCAST(Date('1970-01-03') AS Int8)",
+                "SELECT BITCAST(CAST(-1 AS Interval) AS Uint64)", "SELECT BITCAST(CAST(-1 AS Date32) AS Uint8)",
+                "PRAGMA CheckedOps='true'; SELECT 0l + 18446744073709551615ul",
+                "PRAGMA CheckedOps='true'; SELECT 18446744073709551615ul * 18446744073709551615ul",
+                "PRAGMA CheckedOps='true'; SELECT -9223372036854775808l",
+                "PRAGMA ClassicDivision='false'; SELECT 1 / 0",
+                "PRAGMA UnicodeLiterals; SELECT '\\xff's"}) CheckScalar(sql);
+    }
+
     Y_UNIT_TEST(BitwiseAndNullSafePredicatesEmitTerminalOperations) {
         using namespace NFrontend;
         for (const auto* sql : {"SELECT ~1u", "SELECT 7u & 3u | 1u", "SELECT 1u << 2u",

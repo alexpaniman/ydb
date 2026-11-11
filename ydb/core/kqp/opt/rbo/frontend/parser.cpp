@@ -312,6 +312,18 @@ private:
             Expect("<"); name = TypeName(); TypeEnd(); name += '?';
         } else if (Upper(name) == "LIST") {
             Expect("<"); name = "List<" + TypeName(); TypeEnd(); name += '>';
+        } else if (Upper(name) == "TUPLE") {
+            Expect("<"); name = "Tuple<";
+            if (!TakeTypeEnd()) {
+                do {
+                    name += TypeName();
+                    if (TakeTypeEnd()) break;
+                    Expect(",");
+                    if (TakeTypeEnd()) break;
+                    name += ',';
+                } while (true);
+            }
+            name += '>';
         } else if (Upper(name) == "DECIMAL") {
             Expect("(");
             if (Token().Kind != EToken::Number) Fail("expected Decimal precision");
@@ -883,12 +895,14 @@ private:
         }
         if (token.Kind == EToken::String) {
             ++Index;
-            const auto value = Add(ESyntaxKind::String, pos, std::string(token.Text));
-            return token.Word == "U" ? Add(ESyntaxKind::Call, pos, "Utf8", {value}) : value;
+            return Add(token.Word == "U" ? ESyntaxKind::Utf8String : token.Word == "S" ? ESyntaxKind::ByteString : ESyntaxKind::String,
+                pos, std::string(token.Text));
         }
-        if (Take("CAST")) {
+        if (Is("CAST") || Is("BITCAST")) {
+            const auto kind = Take("CAST") ? ESyntaxKind::Cast : ESyntaxKind::BitCast;
+            if (kind == ESyntaxKind::BitCast) ++Index;
             Expect("("); auto arg = Expression(); Expect("AS"); auto type = TypeName(); Expect(")");
-            return Add(ESyntaxKind::Cast, pos, std::move(type), {arg});
+            return Add(kind, pos, std::move(type), {arg});
         }
         if (Is("JSON_VALUE") && Is("(", 1)) {
             ++Index; Expect("("); auto input = Expression(); Expect(",");

@@ -568,6 +568,7 @@ private:
                 return Cast(args[0], from, type);
             }
             case O::Cast: return Cast(args[0], Arena[node.Arguments[0]].Type, type);
+            case O::BitCast: return Call("Convert", {args[0], Type(type.Required())}, type);
             case O::Negate: return Call("Minus", std::move(args), type);
             case O::Not: return Call("Not", std::move(args), type);
             case O::BitNot: return Call("BitNot", std::move(args), type);

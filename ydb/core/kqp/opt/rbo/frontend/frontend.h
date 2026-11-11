@@ -212,6 +212,9 @@ struct TBindSettings {
     // Generic-query semantics; data/scan APIs select the legacy IN default.
     bool AnsiIn = true;
     bool AnsiCurrentRow = true;
+    bool UnicodeLiterals = false;
+    bool ClassicDivision = true;
+    bool CheckedOps = false;
     std::string TablePathPrefix;
     std::unordered_map<std::string, TParameterType> ParameterTypes;
     std::size_t MaxNodes = 1'000'000;

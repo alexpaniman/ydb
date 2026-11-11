@@ -90,6 +90,74 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
         }
     }
 
+
+    Y_UNIT_TEST(NativeScalarSettingsAndBitCastMatchLegacy) {
+        TParamsBuilder parameters;
+        auto& rows = parameters.AddParam("$rows").BeginList();
+        const TVector<std::optional<i64>> signedValues{std::nullopt, 0, 1, -1, std::numeric_limits<i64>::min(), std::numeric_limits<i64>::max()};
+        const TVector<std::optional<ui64>> unsignedValues{std::nullopt, 0, 1, std::numeric_limits<ui64>::max()};
+        ui32 id = 0;
+        for (const auto a : signedValues) for (const auto b : signedValues) {
+            rows.AddListItem().BeginStruct().AddMember("id").Uint32(id)
+                .AddMember("a").OptionalInt64(a).AddMember("b").OptionalInt64(b)
+                .AddMember("u").OptionalUint64(unsignedValues[id % unsignedValues.size()])
+                .AddMember("v").OptionalUint64(unsignedValues[(id / unsignedValues.size()) % unsignedValues.size()])
+                .EndStruct();
+            ++id;
+        }
+        rows.EndList().Build();
+        const auto params = parameters.Build();
+        const TString declaration = "DECLARE $rows AS List<Struct<id:Uint32,a:Int64?,b:Int64?,u:Uint64?,v:Uint64?>>; ";
+        const TVector<TString> queries{
+            declaration + R"(PRAGMA CheckedOps='true'; SELECT id, a+b, a-b, a*b, a/b, a%b, -a,
+                u+v, u-v, u*v, u/v, u%v, -u, a+u, a-u, a*u, a/u, a%u FROM AS_TABLE($rows) ORDER BY id;)",
+            declaration + R"(PRAGMA ClassicDivision='false'; PRAGMA CheckedOps='true';
+                SELECT id, a/b, u/v, a/u FROM AS_TABLE($rows) ORDER BY id;)",
+            declaration + R"(SELECT id, BITCAST(a AS Uint8), BITCAST(a AS Uint64), BITCAST(u AS Int8),
+                BITCAST(u AS Int64), BITCAST(b AS Int32) FROM AS_TABLE($rows) ORDER BY id;)",
+            R"(PRAGMA UnicodeLiterals; PRAGMA CheckedOps='true'; PRAGMA ClassicDivision='false';
+                $q = (SELECT 'text' AS s, 1+2 AS n, 4/2 AS d);
+                $f = ($x) -> { RETURN $x+1; };
+                PRAGMA DisableUnicodeLiterals; PRAGMA CheckedOps='false'; PRAGMA ClassicDivision='true';
+                SELECT s, n, d FROM $q; SELECT $f(1), 'text', 4/2;
+                PRAGMA UnicodeLiterals; SELECT '\xff's, 'text'u, 'text';)",
+            // The old SQL parser rejects minimum signed literals before
+            // arithmetic. Typed constructors keep this oracle about arithmetic;
+            // native signed-literal parsing has separate reference tests.
+            R"(PRAGMA CheckedOps='true'; SELECT Int64('-9223372036854775808'), -1u, 127t+1t,
+                0ut-1ut, 255ut*2ut, Int8('-128') / -1t, Int8('-128') % -1t;)",
+        };
+        TVector<TVector<TString>> expectedRows, expectedTypes;
+        for (const bool native : {false, true}) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            config->SetEnableNewRBO(native);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+            for (std::size_t i = 0; i < queries.size(); ++i) {
+                const auto result = kikimr.GetQueryClient().ExecuteQuery(queries[i], NQuery::TTxControl::NoTx(),
+                    i < 3 ? params : TParamsBuilder().Build()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), queries[i] << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, queries[i]);
+                TVector<TString> values, types;
+                for (const auto& output : result.GetResultSets()) {
+                    values.push_back(FormatResultSetYson(output));
+                    for (const auto& column : output.GetColumnsMeta()) types.push_back(column.Type.ToString());
+                }
+                if (!native) { expectedRows.push_back(std::move(values)); expectedTypes.push_back(std::move(types)); }
+                else {
+                    UNIT_ASSERT_VALUES_EQUAL_C(values.size(), expectedRows[i].size(), queries[i]);
+                    for (std::size_t j = 0; j < values.size(); ++j) UNIT_ASSERT_VALUES_EQUAL_C(values[j], expectedRows[i][j], queries[i]);
+                    UNIT_ASSERT_VALUES_EQUAL_C(types.size(), expectedTypes[i].size(), queries[i]);
+                    for (std::size_t j = 0; j < types.size(); ++j) UNIT_ASSERT_VALUES_EQUAL_C(types[j], expectedTypes[i][j], queries[i]);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeBitwiseAndNullSafeResultsMatchLegacy) {
         TParamsBuilder parameters;
         auto& rows = parameters.AddParam("$rows").BeginList();

@@ -157,6 +157,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::ShiftLeft: return "ShiftLeft";
         case TNativeOp::ShiftRight: return "ShiftRight";
         case TNativeOp::IsNotDistinct: return "IsNotDistinctFrom";
+        case TNativeOp::BitCast: return "BitCast";
         case TNativeOp::OptionalWrap: return "Just";
         case TNativeOp::UnicodeLower: return "Unicode::ToLower";
         case TNativeOp::UnicodeUpper: return "Unicode::ToUpper";

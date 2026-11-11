@@ -22,6 +22,70 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(TupleTypeNamesPreserveDecimalParametersAndOptionality) {
+        TExpressionArena arena;
+        const auto type = arena.ParseTypeName("Tuple<Int64,Decimal(12,2),String?>?");
+        UNIT_ASSERT_VALUES_EQUAL(type.OptionalDepth, 1);
+        const auto fields = arena.TupleItems(type);
+        UNIT_ASSERT_VALUES_EQUAL(fields.size(), 3);
+        UNIT_ASSERT(fields[0] == TType{K::Int64});
+        UNIT_ASSERT(fields[1] == (TType{K::Decimal, false, 12, 2}));
+        UNIT_ASSERT(fields[2] == (TType{K::String, true}));
+        for (const auto* invalid : {"Tuple<Int64,>", "Tuple<Decimal(12,2>", "Tuple<Int64),String>", "Tuple<List<Int64>>"})
+            UNIT_ASSERT_EXCEPTION(arena.ParseTypeName(invalid), TFrontendError);
+        const TExprId items[]{arena.Literal({K::String}, std::string{"bad"})};
+        const TType required[]{TType{K::Int32}};
+        UNIT_ASSERT_EXCEPTION(arena.Cast(arena.Collection(items, false), arena.TupleType(required)), TUnsupportedFeature);
+    }
+
+    Y_UNIT_TEST(BitCastPreservesWrappingAndNullsThroughNativeTransforms) {
+        for (const auto kind : {K::Int8, K::Int16, K::Int32, K::Int64, K::Uint8, K::Uint16, K::Uint32, K::Uint64}) {
+            TExpressionArena arena;
+            const auto column = arena.Column(0, {K::Int64, true});
+            const auto root = arena.BitCast(column, {kind});
+            const auto literal = arena.Literal({K::Int64, true}, std::int64_t{-1});
+            const auto rewritten = arena.RewriteColumns(root, [&](auto, auto, auto, auto) { return literal; });
+            const auto value = Evaluate(arena, rewritten);
+            UNIT_ASSERT(value.Type == (TType{kind, true}));
+            if (value.Type.IsSigned()) UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(value.Data), -1);
+            else UNIT_ASSERT(std::get<std::uint64_t>(value.Data) > 0);
+            const auto folded = arena.FoldConstants(std::span{&rewritten, 1}).front();
+            UNIT_ASSERT(arena[folded].Op == O::Literal);
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(value));
+            TExpressionArena copy;
+            const auto imported = copy.Import(arena, root, [&](auto, auto type, auto pos) {
+                return copy.Literal(type, std::int64_t{-1}, pos);
+            });
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(copy, imported)), FormatValue(value));
+            UNIT_ASSERT(Evaluate(arena, arena.BitCast(arena.Literal({K::Int64, true}, {}), {kind})).IsNull());
+        }
+        TExpressionArena arena;
+        const auto one = arena.Literal({K::Int32}, std::int64_t{1});
+        UNIT_ASSERT_EXCEPTION(arena.BitCast(one, {K::Uint32, true}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.BitCast(one, {K::Double}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.BitCast(arena.Literal({K::Double}, 1.0), {K::Int64}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.BitCast(arena.Null(), {K::Int64}), TFrontendError);
+    }
+
+    Y_UNIT_TEST(CheckedArithmeticFoldingAndRewritingPreserveFailures) {
+        for (const auto op : {O::Add, O::Subtract, O::Multiply, O::Divide, O::Modulo}) {
+            TExpressionArena arena;
+            const auto x = arena.Column(0, {K::Int64}), y = arena.Column(1, {K::Uint64});
+            const auto root = arena.CheckedBinary(op, x, y);
+            const auto rewritten = arena.RewriteColumns(root, [&](auto, auto column, auto type, auto pos) {
+                return arena.Literal(type, column ? TScalar{std::numeric_limits<std::uint64_t>::max()} : TScalar{std::int64_t{0}}, pos);
+            });
+            UNIT_ASSERT(Evaluate(arena, rewritten).IsNull());
+            const auto folded = arena.FoldConstants(std::span{&rewritten, 1}).front();
+            UNIT_ASSERT(arena[folded].Op == O::Literal);
+            UNIT_ASSERT(Evaluate(arena, folded).IsNull());
+            TExpressionArena copy;
+            const auto imported = copy.Import(arena, rewritten, {});
+            UNIT_ASSERT(copy[imported].Type == arena[root].Type);
+            UNIT_ASSERT(Evaluate(copy, imported).IsNull());
+        }
+    }
+
     Y_UNIT_TEST(BitwiseWidthsShiftsAndNullsSurviveNativeTransforms) {
         for (const auto kind : {K::Int8, K::Int16, K::Int32, K::Int64, K::Uint8, K::Uint16, K::Uint32, K::Uint64}) {
             TExpressionArena arena;

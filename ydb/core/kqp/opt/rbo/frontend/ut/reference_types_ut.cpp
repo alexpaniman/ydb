@@ -62,6 +62,108 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(StringEscapesAndAnsiQuoting) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT 'a\\n\\x00b', @@one@@@@two@@;");
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(Evaluate(f.Program.Expressions, f.Projection(0)).Data), std::string("a\n\0b", 4));
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(Evaluate(f.Program.Expressions, f.Projection(1)).Data), "one@@two");
+            f.Ok("--!ansi_lexer\nSELECT 'it''s';");
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(Evaluate(f.Program.Expressions, f.Projection(0)).Data), "it's");
+            f.Settings.Binding.UnicodeLiterals = true;
+            f.Ok("SELECT 'text';"); f.Types({"Utf8"});
+        }
+    }
+
+    Y_UNIT_TEST(DivisionAndCheckedArithmeticSettings) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT 4 / 2, 1 + 2;"); f.Types({"Int32?", "Int32"});
+            f.Settings.Binding.ClassicDivision = false;
+            f.Ok("SELECT 4 / 2, 1 + 2;"); f.Types({"Double", "Int32"});
+            f.Settings.Binding.ClassicDivision = true;
+            f.Settings.Binding.CheckedOps = true;
+            f.Ok("SELECT 4 / 2, 1 + 2;"); f.Types({"Int32?", "Int32?"});
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), "2");
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(f.Program.Expressions, f.Projection(1))), "3");
+        }
+    }
+
+    Y_UNIT_TEST(MultipleStatementsAndExpressionSettings) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Settings.Binding.CheckedOps = f.Settings.Binding.UnicodeLiterals = true;
+            f.Ok("SELECT id + 1 FROM t; SELECT 'text', -9223372036854775808l;");
+            f.Types({"Int64?"}); f.Types({"Utf8", "Int64"}, 1);
+        }
+    }
+
+    Y_UNIT_TEST(CastsUseExistingCoercions) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT CAST(1 AS Int64), CAST('123' AS Int32), CAST(1 AS Int32?), BITCAST(1 AS Uint32), CAST(1 AS Decimal(12,2));");
+            f.Types({"Int64", "Int32?", "Int32?", "Uint32", "Decimal(12,2)"});
+            // The reference scalar fixture also covers containers. Inspect the
+            // native binder boundary: public result columns still require scalars.
+            const auto syntax = ParseNative("SELECT CAST([1, 2] AS List<Int64>), CAST((1, 'a') AS Tuple<Int64, String>);", f.Settings);
+            auto program = NKikimr::NKqp::NFrontend::NDetail::Bind(syntax, {});
+            const auto& columns = program.Results[0].Columns;
+            UNIT_ASSERT(program.Expressions.ListItem(columns[0].Type) == TType{ETypeKind::Int64});
+            const auto fields = program.Expressions.TupleItems(columns[1].Type);
+            UNIT_ASSERT_VALUES_EQUAL(fields.size(), 2);
+            UNIT_ASSERT(fields[0] == TType{ETypeKind::Int64});
+            UNIT_ASSERT(fields[1] == TType{ETypeKind::String});
+        }
+    }
+
+    Y_UNIT_TEST(ExpressionPragmasCaptureDefinitionsAndRespectExplicitSuffixes) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok(R"(
+                PRAGMA UnicodeLiterals;
+                PRAGMA CheckedOps='true';
+                PRAGMA ClassicDivision='false';
+                $q = (SELECT 'text' AS s, 1 + 2 AS n, 4 / 2 AS d);
+                $f = ($x) -> { RETURN $x + 1; };
+                PRAGMA DisableUnicodeLiterals;
+                PRAGMA CheckedOps='false';
+                PRAGMA ClassicDivision='true';
+                SELECT * FROM $q;
+                SELECT $f(1), 'text', 4 / 2;
+                PRAGMA UnicodeLiterals;
+                SELECT '\xff's, 'text'u, 'text';
+            )");
+            f.Types({"Utf8", "Int32?", "Double"});
+            f.Types({"Int32?", "String", "Int32?"}, 1);
+            f.Types({"String", "Utf8", "Utf8"}, 2);
+            f.Ok("PRAGMA DisableAnsiInForEmptyOrNullableItemsCollections; $q = (SELECT 2 IN (1,NULL) AS x); PRAGMA AnsiInForEmptyOrNullableItemsCollections; SELECT * FROM $q;");
+            f.Types({"Bool"});
+            for (const auto* sql : {"PRAGMA UnicodeLiterals; SELECT '\\xff';", "SELECT '\\xff'u;",
+                    "PRAGMA ClassicDivision; SELECT 1;", "PRAGMA CheckedOps=''; SELECT 1;",
+                    "PRAGMA CheckedOps='maybe'; SELECT 1;", "PRAGMA UnicodeLiterals='false'; SELECT 1;"})
+                UNIT_ASSERT_EXCEPTION(f.Ok(sql), TFrontendError);
+        }
+    }
+
+    Y_UNIT_TEST(CheckedArithmeticValuesAndTypes) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar})
+        for (const auto& [sql, type, expected] : std::initializer_list<std::tuple<std::string_view, std::string_view, std::string_view>>{
+                {"127t + 1t", "Int8?", "NULL"}, {"127t + 0t", "Int8?", "127"},
+                {"0ut - 1ut", "Uint8?", "NULL"}, {"255ut * 2ut", "Uint8?", "NULL"},
+                {"-128t / -1t", "Int8?", "NULL"}, {"-128t % -1t", "Int8?", "NULL"},
+                {"1 / 0", "Int32?", "NULL"}, {"-(Int8('-128'))", "Int8?", "NULL"},
+                {"-1u", "Uint32?", "NULL"}, {"-9223372036854775808l", "Int64", "-9223372036854775808"},
+                {"18446744073709551615ul + 1ul", "Uint64?", "NULL"},
+                {"18446744073709551615ul * 18446744073709551615ul", "Uint64?", "NULL"},
+                {"18446744073709551615ul + 0ul", "Uint64?", "18446744073709551615"},
+                {"-1l + 1ul", "Int64?", "0"}, {"0l + 18446744073709551615ul", "Int64?", "NULL"},
+                {"1.0 + 2.0", "Double", "3"}}) {
+            TFixture f; f.Settings.Parser = parser; f.Settings.Binding.CheckedOps = true;
+            f.Ok("SELECT " + std::string(sql)); f.Types({type});
+            UNIT_ASSERT_VALUES_EQUAL_C(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), expected, sql);
+        }
+    }
+
     Y_UNIT_TEST(OperatorsAndNullablePredicates) {
         for (const auto parser : {EParser::Fast, EParser::Grammar})
         for (const auto& [sql, type] : std::initializer_list<std::pair<std::string_view, std::string_view>>{

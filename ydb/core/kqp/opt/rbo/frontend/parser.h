@@ -30,7 +30,12 @@ struct TWindowFrame {
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
     Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue, Index, Invoke, Lambda,
+    ByteString, Utf8String, BitCast,
 };
+
+inline bool IsStringLiteral(ESyntaxKind kind) {
+    return kind == ESyntaxKind::String || kind == ESyntaxKind::ByteString || kind == ESyntaxKind::Utf8String;
+}
 
 struct TSyntaxExpr {
     ESyntaxKind Kind;

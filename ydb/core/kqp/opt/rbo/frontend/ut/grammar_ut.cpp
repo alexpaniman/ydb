@@ -7,6 +7,17 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(ExplicitStringKindsAndBitCastAgreeAcrossParsers) {
+        const auto* sql = "SELECT 'a', 'b's, 'c'u, BITCAST(-1 AS Uint8), BITCAST(Just(TRUE) AS Int64)";
+        const auto fast = Parse(sql), grammar = ParseGrammar(sql);
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+        const auto& p = fast.Statements[0].Query->Projection;
+        UNIT_ASSERT(fast.Expressions[p[0].Expression].Kind == ESyntaxKind::String);
+        UNIT_ASSERT(fast.Expressions[p[1].Expression].Kind == ESyntaxKind::ByteString);
+        UNIT_ASSERT(fast.Expressions[p[2].Expression].Kind == ESyntaxKind::Utf8String);
+        UNIT_ASSERT(fast.Expressions[p[3].Expression].Kind == ESyntaxKind::BitCast);
+    }
+
     Y_UNIT_TEST(NullSafeEqualityAgreesAcrossParsers) {
         for (const auto* sql : {"SELECT x IS DISTINCT FROM y", "SELECT x IS NOT DISTINCT FROM y + 1",
                 "SELECT x IS NOT DISTINCT FROM y AND a IS DISTINCT FROM b", "SELECT NOT x IS DISTINCT FROM y"}) {

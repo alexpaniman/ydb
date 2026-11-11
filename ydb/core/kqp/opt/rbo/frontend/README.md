@@ -249,7 +249,18 @@ Extended Date32/Datetime64/Timestamp64/Interval64 and Uuid are native types.
 dependencies and cannot fold. `YQL::RandomUuid()` and `YQL::RandomNumber()` are
 accepted as SQL spellings for query-scoped native inputs; each emits one internal
 parameter and exposes no user parameter.
-String `s`/`u` suffixes are supported. Integer promotion, checked casts, decimal
+String `s`/`u` suffixes override `UnicodeLiterals` / `DisableUnicodeLiterals`.
+`ClassicDivision='false'` converts the left operand of division to Double;
+`CheckedOps='true'` returns NULL for integer overflow and invalid common-type
+conversions. Expression options, including IN and window defaults, are captured
+at lexical definitions, so later pragmas do not change deferred queries/lambdas.
+Checked arithmetic is constructed from native casts and Decimal(20,0)
+operations; emission needs no checked-operation macro or YQL peephole.
+`BITCAST` wraps Bool, integer and temporal payloads into required integral target
+types while preserving input optionality. Native tuple casts support required
+tuples with total field conversions; collection-valued public results remain
+outside the profile.
+Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
 JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differential
 tests. Static direct, inline `Udf(String::...)`, and bound callable forms resolve

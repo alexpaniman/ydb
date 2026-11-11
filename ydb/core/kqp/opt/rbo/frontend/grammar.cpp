@@ -184,9 +184,19 @@ private:
         }
         if (Name(node) == "type_name_optional") return Type(Child(node, "type_name_or_bind")) + "?";
         if (Name(node) == "type_name_list") return "List<" + Type(Child(node, "type_name_or_bind")) + ">";
+        if (Name(node) == "type_name_tuple") {
+            std::string result = "Tuple<";
+            bool first = true;
+            for (auto* field : Children(node, "type_name_or_bind")) {
+                if (!first) result += ',';
+                result += Type(field);
+                first = false;
+            }
+            return result + '>';
+        }
         if (Name(node) == "type_name_composite") {
             auto* inner = Only(node);
-            if (Name(inner) != "type_name_optional" && Name(inner) != "type_name_list")
+            if (Name(inner) != "type_name_optional" && Name(inner) != "type_name_list" && Name(inner) != "type_name_tuple")
                 Unsupported(node, EFeature::Type, "container types");
             auto result = Type(inner);
             for (auto* child : node->children) if (child->getText() == "?") result += '?';
@@ -267,8 +277,8 @@ private:
             if (!text.empty() && (text[0] == '\'' || text[0] == '"' || text.starts_with("@@"))) {
                 const auto suffix = Upper(text.substr(text.size() - 1));
                 if (suffix == "U" || suffix == "S") text.pop_back();
-                const auto value = Add(ESyntaxKind::String, node, Decode(text, node));
-                return suffix == "U" ? Add(ESyntaxKind::Call, node, "Utf8", {value}) : value;
+                return Add(suffix == "U" ? ESyntaxKind::Utf8String : suffix == "S" ? ESyntaxKind::ByteString : ESyntaxKind::String,
+                    node, Decode(text, node));
             }
             Unsupported(node, EFeature::Expression, "literal " + text);
         }
@@ -279,7 +289,8 @@ private:
         }
         if (name == "bind_parameter") return Add(ESyntaxKind::Variable, node, Variable(node));
         if (name == "id_expr" || name == "id_expr_in") return Add(ESyntaxKind::Column, node, Id(node));
-        if (name == "cast_expr") return Add(ESyntaxKind::Cast, node, Type(Child(node, "type_name_or_bind")), {Expr(Child(node, "expr"))});
+        if (name == "cast_expr" || name == "bitcast_expr") return Add(name == "bitcast_expr" ? ESyntaxKind::BitCast : ESyntaxKind::Cast,
+            node, Type(Child(node, name == "bitcast_expr" ? "type_name_simple" : "type_name_or_bind")), {Expr(Child(node, "expr"))});
         if (name == "exists_expr") {
             const auto id = Add(ESyntaxKind::Exists, node);
             Result.Expressions[id].Query = Select(Child(node, "select_stmt"));

@@ -13,6 +13,14 @@ std::string Fingerprint(TParsedExpression parsed) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeRowExpressions) {
+    Y_UNIT_TEST(StandaloneExpressionsRetainDefaultScalarOptions) {
+        const auto value = CompileRowExpression("5 / 2", {}, {ETypeKind::Int32, true});
+        UNIT_ASSERT(value.Expressions[value.Root].Type == (TType{ETypeKind::Int32, true}));
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(value.Expressions, value.Root)), "2");
+        const auto text = CompileRowExpression("'text'", {}, {ETypeKind::String});
+        UNIT_ASSERT(text.Expressions[text.Root].Type == TType{ETypeKind::String});
+    }
+
     Y_UNIT_TEST(ScalarEntryPointsUseTheOrdinaryExpressionGrammar) {
         for (const auto* sql : {"id * 10 + COALESCE(payload, 0)", "CASE WHEN id > 0 THEN payload ELSE 7 END",
                 "CAST(id AS Int64)", "IF(payload IS NULL, 0, payload)", "'a; SELECT b'", "(1 + 2) * 3"}) {

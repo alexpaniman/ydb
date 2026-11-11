@@ -1143,6 +1143,28 @@ TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition pos
         type.OptionalDepth = optional;
         return type;
     }
+    if (name.size() >= 7 && EqualAsciiCase(name.substr(0, 6), "Tuple<") && name.back() == '>') {
+        const auto fields = name.substr(6, name.size() - 7);
+        std::vector<TType> items;
+        std::size_t begin = 0;
+        unsigned parameters = 0;
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            if (fields[i] == '(') ++parameters;
+            if (fields[i] == ')') {
+                if (!parameters) Fail(position, "Unmatched tuple field type parentheses");
+                --parameters;
+            }
+            if (fields[i] == ',' && !parameters) {
+                items.push_back(ParseType(fields.substr(begin, i - begin), position));
+                begin = i + 1;
+            }
+        }
+        if (parameters) Fail(position, "Unclosed tuple field type parameters");
+        if (!fields.empty()) items.push_back(ParseType(fields.substr(begin), position));
+        auto type = TupleType(items, position);
+        type.OptionalDepth = optional;
+        return type;
+    }
     return ParseType(original, position);
 }
 
@@ -1283,6 +1305,42 @@ TExprId TExpressionArena::Parameter(std::string name, TType type, TSourcePositio
     return Append({O::Parameter, type, position, {}, {}, std::move(name), 0});
 }
 
+TExprId TExpressionArena::BitCast(TExprId input, TType target, TSourcePosition position) {
+    ValidateType(target, position);
+    const auto source = (*this)[input].Type;
+    if (source.OptionalDepth > 1 || target.OptionalDepth || !target.IsIntegral() ||
+        !(source.IsIntegral() || source.IsDate() || source.IsInterval() || source.Kind == K::Bool))
+        Fail(position, "BITCAST requires Bool, integer or temporal input and a required integer target");
+    target.OptionalDepth = source.OptionalDepth;
+    if (source == target) return input;
+    return Append({O::BitCast, target, position, {input}, {}, {}, 0});
+}
+
+TExprId TExpressionArena::CheckedNegate(TExprId input, TSourcePosition position) {
+    const auto type = (*this)[input].Type;
+    if (type.Kind == K::Null) return input;
+    if (!type.IsIntegral()) return Unary(O::Negate, input, position);
+    return Cast(Unary(O::Negate, Cast(input, {K::Decimal, false, 20, 0}, position), position), type.Optional(), position);
+}
+
+TExprId TExpressionArena::CheckedBinary(O op, TExprId left, TExprId right, TSourcePosition position) {
+    if (op != O::Add && op != O::Subtract && op != O::Multiply && op != O::Divide && op != O::Modulo)
+        Fail(position, "Checked arithmetic requires an arithmetic operation");
+    const auto a = (*this)[left].Type, b = (*this)[right].Type;
+    if (a.Kind == K::Null || b.Kind == K::Null) return Null(position);
+    if (!a.IsIntegral() || !b.IsIntegral()) return Binary(op, left, right, position);
+    const auto result = CommonType(a, b, position).Optional();
+    // Validate each operand before arithmetic: mixed signed/unsigned values
+    // must not wrap on their way into the common result type.
+    left = Cast(left, result, position);
+    right = Cast(right, result, position);
+    if (op == O::Divide || op == O::Modulo) return Binary(op, left, right, position);
+    const TType wide{K::Decimal, false, 20, 0};
+    left = Cast(left, wide, position);
+    right = Cast(right, wide, position);
+    return Cast(Binary(op, left, right, position), result, position);
+}
+
 TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition position) {
     ValidateType(target, position);
     if ((*this)[input].Type == target) {
@@ -1340,6 +1398,22 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
         // optionality preserves an absent input, not element-level failure.
         target.OptionalDepth = std::max(target.OptionalDepth, source.OptionalDepth);
         return Append({O::Cast, target, position, {input}, {}, {}, 0});
+    }
+    if (source.Kind == K::Tuple && target.Kind == K::Tuple) {
+        if (source.OptionalDepth) throw TUnsupportedFeature(EFeature::Type, position, "optional tuple casts require explicit Unwrap");
+        const auto from = TupleItems(source), to = TupleItems(target);
+        if (from.size() != to.size()) Fail(position, "Tuple casts require matching field counts");
+        const std::vector<TType> fields(to.begin(), to.end());
+        std::vector<TExprId> items;
+        items.reserve(fields.size());
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            const auto item = Cast(TupleElement(input, i, position), fields[i], position);
+            if ((*this)[item].Type != fields[i])
+                throw TUnsupportedFeature(EFeature::Type, position, "tuple casts require total field conversions");
+            items.push_back(item);
+        }
+        auto result = Collection(items, false, position);
+        return target.OptionalDepth ? Convert(result, (*this)[result].Type.Optional(), position) : result;
     }
     if (source.IsCollection() || target.IsCollection()) return Convert(input, target, position);
     target = ScalarCastType(source, target, (*this)[input].Op == O::Literal, position);
@@ -1978,6 +2052,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Convert:
             return Convert(node.Arguments[0], CommonType(node.Type, (*this)[node.Arguments[0]].Type, node.Position), node.Position);
         case O::Cast: return Cast(node.Arguments[0], node.Type, node.Position);
+        case O::BitCast: return BitCast(node.Arguments[0], node.Type.Required(), node.Position);
         case O::If: return If(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         case O::Coalesce: return Coalesce(node.Arguments, node.Position);
         case O::Substring: return Call("Substring", node.Arguments, node.Position);
@@ -2421,7 +2496,7 @@ TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::
         }
         return argument(0).Type.OptionalDepth > 1 ? *std::get<TOptionalValue>(argument(0).Data) : TValue{node.Type, argument(0).Data};
     }
-    if (node.Op == O::Convert && argument(0).Type.IsIntegral() && node.Type.IsIntegral()) {
+    if (node.Op == O::BitCast || (node.Op == O::Convert && argument(0).Type.IsIntegral() && node.Type.IsIntegral())) {
         const auto& value = argument(0);
         return value.IsNull() ? NullValue(node.Type) :
             TValue{node.Type, WrapInteger(static_cast<unsigned __int128>(*IntegralValue(value)), node.Type)};

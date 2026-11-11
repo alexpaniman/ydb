@@ -111,6 +111,7 @@ enum class EOpcode : std::uint8_t {
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
     ListFromRange, ListConcat, ListLength, ListHasItems, Minimum, Maximum,
     BitNot, BitAnd, BitOr, BitXor, ShiftLeft, ShiftRight, IsNotDistinct,
+    BitCast,
 };
 
 struct TExprNode {
@@ -158,6 +159,12 @@ public:
     TExprId Parameter(std::string name, TType type, TSourcePosition position = {});
     TExprId Unary(EOpcode op, TExprId input, TSourcePosition position = {});
     TExprId Binary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
+    // Checked integer arithmetic uses native checked casts and Decimal(20,0)
+    // intermediates. No unresolved checked macros reach terminal emission.
+    TExprId CheckedNegate(TExprId input, TSourcePosition position = {});
+    TExprId CheckedBinary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
+    // Integral reinterpretation/narrowing preserves source optionality.
+    TExprId BitCast(TExprId input, TType target, TSourcePosition position = {});
     // Total numeric conversion/optional lifting; rejects conversions that can fail.
     TExprId Convert(TExprId input, TType target, TSourcePosition position = {});
     // Text-to-Datetime/Timestamp casts require literals and fold here.
