@@ -5,6 +5,35 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeParser) {
+    Y_UNIT_TEST(ParsedSyntaxOwnsTextAfterInputAndLexerAreReleased) {
+        const auto parse = [] {
+            std::string sql = "PRAGMA warning('disable', '4527'); DECLARE $input AS List<Struct<`field``name`:Decimal(12,2)>>; SELECT ";
+            for (unsigned i = 0; i < 300; ++i) {
+                if (i) sql += ',';
+                sql += "'value\\n" + std::to_string(i) + "' AS `alias``" + std::to_string(i) + "`";
+            }
+            sql += " FROM `table``name`;";
+            auto result = Parse(sql);
+            sql.assign(sql.size(), '#');
+            return result;
+        };
+        auto parsed = parse();
+        auto moved = std::move(parsed);
+        UNIT_ASSERT_VALUES_EQUAL(moved.Statements[0].Name, "warning");
+        UNIT_ASSERT(moved.Statements[0].PragmaValues == (std::vector<std::string>{"disable", "4527"}));
+        const auto& declaration = moved.Statements[1];
+        UNIT_ASSERT_VALUES_EQUAL(declaration.Name, "input");
+        UNIT_ASSERT_VALUES_EQUAL(declaration.RowFields->at(0).first, "field`name");
+        UNIT_ASSERT_VALUES_EQUAL(declaration.RowFields->at(0).second, "Decimal(12,2)");
+        const auto& query = *moved.Statements[2].Query;
+        UNIT_ASSERT_VALUES_EQUAL(query.Source->Name, "table`name");
+        UNIT_ASSERT_VALUES_EQUAL(query.Projection.size(), 300);
+        for (unsigned i = 0; i < 300; ++i) {
+            UNIT_ASSERT_VALUES_EQUAL(query.Projection[i].Alias, "alias`" + std::to_string(i));
+            UNIT_ASSERT_VALUES_EQUAL(moved.Expressions[query.Projection[i].Expression].Text, "value\n" + std::to_string(i));
+        }
+    }
+
     Y_UNIT_TEST(YqlPrecedence) {
         const auto parsed = Parse("SELECT 1 + 2 * 3 == 7 AND true OR false, 'a' || 'b' * 2;");
         const auto& query = *parsed.Statements[0].Query;

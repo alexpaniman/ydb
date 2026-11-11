@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <deque>
 #include <utility>
 
 namespace NKikimr::NKqp::NFrontend {
@@ -17,7 +18,7 @@ struct TKeyword { std::string_view Word; unsigned Identifiers; };
 
 struct TToken {
     EToken Kind;
-    std::string Text;
+    std::string_view Text;
     TSourcePosition Position;
     std::size_t EndOffset = 0;
     // Canonical keyword spelling points into the generated static table.
@@ -81,7 +82,8 @@ bool SupportedNumber(std::string_view text) {
 
 class TLexer {
 public:
-    TLexer(std::string_view text, bool ansi) : Text(text), Ansi(ansi) {}
+    TLexer(std::string_view text, bool ansi, std::deque<std::string>& decoded)
+        : Text(text), Ansi(ansi), Decoded(decoded) {}
 
     TToken Next() {
         SkipSpace();
@@ -91,7 +93,7 @@ public:
         const char ch = Peek();
         if (Alpha(ch)) {
             do { Advance(); } while (Alpha(Peek()) || Digit(Peek()));
-            TToken token{EToken::Identifier, std::string(Text.substr(start, Position.Offset - start)), pos};
+            TToken token{EToken::Identifier, Text.substr(start, Position.Offset - start), pos};
             const auto it = std::lower_bound(std::begin(Keywords), std::end(Keywords), token.Text,
                 [](const TKeyword& key, std::string_view word) { return CompareKeyword(key.Word, word) < 0; });
             if (it != std::end(Keywords) && CompareKeyword(it->Word, token.Text) == 0) {
@@ -118,7 +120,7 @@ public:
             }
             const auto number = Text.substr(start, Position.Offset - start);
             if (!SupportedNumber(number)) throw TUnsupportedFeature(EFeature::Syntax, pos, "numeric token requires grammar parser");
-            return {EToken::Number, std::string(number), pos};
+            return {EToken::Number, number, pos};
         }
         if (ch == '\'' || ch == '"' || ch == '`') {
             const bool identifier = ch == '`' || (Ansi && ch == '"');
@@ -126,18 +128,22 @@ public:
             std::string value;
             auto chunk = Position.Offset;
             bool closed = false;
+            bool decoded = false;
             while (Position.Offset < Text.size()) {
                 char current = Peek();
                 Advance();
                 if (current == ch) {
-                    value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     if ((Ansi || identifier) && Peek() == ch) {
+                        decoded = true;
+                        value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                         Advance(); value += ch; chunk = Position.Offset; continue;
                     }
+                    if (decoded) value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     closed = true;
                     break;
                 }
                 if (current == '\\' && (!Ansi || ch == '`')) {
+                    decoded = true;
                     value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     if (Position.Offset == Text.size()) break;
                     const auto consumed = AppendQuotedEscape(Text.substr(Position.Offset), value, pos);
@@ -146,6 +152,7 @@ public:
                 }
             }
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
+            std::string_view content = Text.substr(start + 1, Position.Offset - start - 2);
             std::string_view suffix;
             if (!identifier && (Peek() == 'u' || Peek() == 'U' || Peek() == 's' || Peek() == 'S') &&
                 !Alpha(Peek(1)) && !Digit(Peek(1))) {
@@ -154,7 +161,11 @@ public:
             }
             if (!identifier && (Alpha(Peek()) || Peek() == '@'))
                 throw TUnsupportedFeature(EFeature::Syntax, pos, "typed or adjacent string literal requires grammar parser");
-            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, suffix, 15, ch};
+            if (decoded) {
+                Decoded.push_back(std::move(value));
+                content = Decoded.back();
+            }
+            return {identifier ? EToken::QuotedIdentifier : EToken::String, content, pos, Position.Offset, suffix, 15, ch};
         }
         if (ch == '@' && Peek(1) == '@') {
             throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
@@ -167,7 +178,7 @@ public:
             throw TFrontendError(pos, "unexpected character");
         }
         Advance();
-        return {EToken::Symbol, std::string(1, ch), pos};
+        return {EToken::Symbol, Text.substr(start, 1), pos};
     }
 
 private:
@@ -203,6 +214,7 @@ private:
     }
     std::string_view Text;
     bool Ansi;
+    std::deque<std::string>& Decoded;
     TSourcePosition Position;
 };
 
@@ -214,7 +226,7 @@ public:
         // Delegate non-ASCII input until the fast lexer has the same contract.
         for (unsigned char c : text) if (c >= 128)
             throw TUnsupportedFeature(EFeature::Syntax, {}, "non-ASCII input requires grammar parser");
-        TLexer lexer(text, settings.AnsiQuotes);
+        TLexer lexer(text, settings.AnsiQuotes, DecodedTokens);
         do {
             Tokens.push_back(lexer.Next());
             if ((Tokens.size() - 1) / 8 >= settings.MaxNodes) throw TResourceLimitError(Tokens.back().Position, "token limit exceeded");
@@ -270,7 +282,7 @@ private:
         if (Token().Kind != EToken::Identifier && Token().Kind != EToken::QuotedIdentifier &&
             Token().Kind != EToken::String) Fail("expected identifier");
         if (Token().Kind == EToken::Identifier && !(Token().Identifiers & category)) Fail("keyword is not an identifier here");
-        return Tokens[Index++].Text;
+        return std::string(Tokens[Index++].Text);
     }
     std::string Variable() { Expect("$"); return Identifier(); }
     TSyntaxId Add(ESyntaxKind kind, TSourcePosition pos, std::string text = {}, std::vector<TSyntaxId> args = {}) {
@@ -303,10 +315,10 @@ private:
         } else if (Upper(name) == "DECIMAL") {
             Expect("(");
             if (Token().Kind != EToken::Number) Fail("expected Decimal precision");
-            name += "(" + Tokens[Index++].Text;
+            name += "("; name += Tokens[Index++].Text;
             Expect(",");
             if (Token().Kind != EToken::Number) Fail("expected Decimal scale");
-            name += "," + Tokens[Index++].Text + ")";
+            name += ","; name += Tokens[Index++].Text; name += ")";
             Expect(")");
         }
         while (Is("?") || Is("??")) name += Tokens[Index++].Text;
@@ -329,7 +341,7 @@ private:
                     if (!TakeTypeEnd()) while (true) {
                         if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(pos, "parameter field limit exceeded");
                         // Struct tags are strings in the grammar as well as identifiers.
-                        auto name = Token().Kind == EToken::String && Token().Word.empty() ? Tokens[Index++].Text : Identifier();
+                        auto name = Token().Kind == EToken::String && Token().Word.empty() ? std::string(Tokens[Index++].Text) : Identifier();
                         Expect(":");
                         result.RowFields->emplace_back(std::move(name), TypeName());
                         if (TakeTypeEnd()) break;
@@ -345,7 +357,7 @@ private:
         }
         if (Take("PRAGMA")) {
             const auto name = [&] {
-                return Settings.AnsiQuotes && Token().Kind == EToken::String && Token().Word.empty() ? Tokens[Index++].Text : Identifier();
+                return Settings.AnsiQuotes && Token().Kind == EToken::String && Token().Word.empty() ? std::string(Tokens[Index++].Text) : Identifier();
             };
             TStatement result{EStatementKind::Pragma, pos}; result.Name = name();
             if (Take(".")) result.Name += "." + name();
@@ -360,7 +372,7 @@ private:
                         Fail("expected string value for pragma " + result.Name);
                     if (!Token().Word.empty())
                         throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
-                    result.PragmaValues.push_back(Tokens[Index++].Text);
+                    result.PragmaValues.emplace_back(Tokens[Index++].Text);
                 } while (parenthesized && Take(","));
                 if (parenthesized) Expect(")");
             }
@@ -861,11 +873,11 @@ private:
             ++Index;
             const bool radix = token.Text.size() > 1 && token.Text[0] == '0' &&
                 (token.Text[1] == 'x' || token.Text[1] == 'X' || token.Text[1] == 'b' || token.Text[1] == 'B' || token.Text[1] == 'o' || token.Text[1] == 'O');
-            return Add(!radix && token.Text.find_first_of(".eE") != std::string::npos ? ESyntaxKind::Real : ESyntaxKind::Integer, pos, token.Text);
+            return Add(!radix && token.Text.find_first_of(".eE") != std::string::npos ? ESyntaxKind::Real : ESyntaxKind::Integer, pos, std::string(token.Text));
         }
         if (token.Kind == EToken::String) {
             ++Index;
-            const auto value = Add(ESyntaxKind::String, pos, token.Text);
+            const auto value = Add(ESyntaxKind::String, pos, std::string(token.Text));
             return token.Word == "U" ? Add(ESyntaxKind::Call, pos, "Utf8", {value}) : value;
         }
         if (Take("CAST")) {
@@ -877,7 +889,7 @@ private:
             if (Token().Kind != EToken::String) Fail("JSON_VALUE requires a literal path");
             if (!Token().Word.empty())
                 throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed JSON paths are outside the native profile");
-            auto path = Tokens[Index++].Text;
+            auto path = std::string(Tokens[Index++].Text);
             // Extended clauses go through the generated grammar and receive
             // an explicit Unsupported result; they are not ordinary call args.
             Expect(")");
@@ -945,6 +957,9 @@ private:
     }
 
     const TParseSettings& Settings;
+    // Tokens borrow ordinary lexemes from the SQL input. Decoded quoted text
+    // stays stable here; the returned syntax owns every retained string.
+    std::deque<std::string> DecodedTokens;
     std::vector<TToken> Tokens;
     std::size_t Index = 0;
     std::size_t Depth = 0;

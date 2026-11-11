@@ -22,6 +22,9 @@ SQL
 
 `ParseNative`, `CollectTables`, and `BindNative` separate syntax from asynchronous
 catalog I/O. `CompileNative` combines them for callers with a synchronous catalog.
+The fast lexer borrows unchanged text during parsing and owns decoded escape
+values until parsing ends. The returned syntax owns all retained strings and
+remains valid after the SQL input and parser are released.
 Global references resolve to declaration IDs, including aliases of named queries;
 source and IN uses share that resolution. Table discovery follows those bindings
 before catalog I/O. Scalar typing and local column resolution consume the owning
