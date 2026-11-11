@@ -24,6 +24,84 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(SchemaAndWatermarkHints) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT * FROM t WITH (
+                SCHEMA = Struct<id:Int64, name:String?>, COLUMNS = $columns,
+                WATERMARK = ts - 1);
+                SELECT * FROM t WITH SCHEMA (id Int64 NOT NULL, name String NULL, Int32 AS old, raw $type);
+                SELECT * FROM t WITH SCHEMA ();)", grammar);
+            const auto& hints = syntax.Statements[0].Query->Source->Options->Hints;
+            const auto& schemaHint = std::get<TSchemaHint>(hints[0].Value);
+            UNIT_ASSERT(!schemaHint.Columns);
+            const auto& schema = std::get<TSyntaxType>(schemaHint.Value);
+            UNIT_ASSERT_VALUES_EQUAL(schema.Name, "Struct");
+            UNIT_ASSERT_VALUES_EQUAL(schema.Members.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(schema.Members[0].Name->Text, "id");
+            UNIT_ASSERT(schema.Members[0].Name->Kind == EHintValueKind::Identifier);
+            UNIT_ASSERT_VALUES_EQUAL(schema.Members[1].Type.OptionalDepth, 1);
+            const auto& columns = std::get<TSchemaHint>(hints[1].Value);
+            UNIT_ASSERT(columns.Columns);
+            UNIT_ASSERT(std::get<TSyntaxType>(columns.Value).Binding);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<TSyntaxType>(columns.Value).Name, "columns");
+            UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[std::get<TWatermarkHint>(hints[2].Value).Expression].Text, "-");
+            const auto& positional = std::get<std::vector<TSchemaColumn>>(
+                std::get<TSchemaHint>(syntax.Statements[1].Query->Source->Options->Hints[0].Value).Value);
+            UNIT_ASSERT_VALUES_EQUAL(positional.size(), 4);
+            UNIT_ASSERT(positional[0].Nullability == EColumnNullability::NotNull);
+            UNIT_ASSERT(positional[1].Nullability == EColumnNullability::Nullable);
+            UNIT_ASSERT(positional[2].Nullability == EColumnNullability::Default);
+            UNIT_ASSERT_VALUES_EQUAL(positional[2].Name.Text, "old");
+            UNIT_ASSERT(positional[3].Type.Binding);
+            UNIT_ASSERT(std::get<std::vector<TSchemaColumn>>(
+                std::get<TSchemaHint>(syntax.Statements[2].Query->Source->Options->Hints[0].Value).Value).empty());
+        }
+    }
+
+    Y_UNIT_TEST(NestedSchemaTypes) {
+        for (const bool grammar : {false, true}) {
+            const auto syntax = Ast(R"(SELECT * FROM t WITH SCHEMA Struct<
+                a:Variant<Int32, String>, b:Variant<x:Int32, y:$type>,
+                c:Tagged<List<Int32>, 'tag'>, d:Enum<red, $blue>, e:Resource<'handle'>>;)", grammar);
+            const auto& members = std::get<TSyntaxType>(
+                std::get<TSchemaHint>(syntax.Statements[0].Query->Source->Options->Hints[0].Value).Value).Members;
+            UNIT_ASSERT_VALUES_EQUAL(members[0].Type.Members.size(), 2);
+            UNIT_ASSERT(!members[0].Type.Members[0].Name);
+            UNIT_ASSERT_VALUES_EQUAL(members[1].Type.Members[0].Name->Text, "x");
+            UNIT_ASSERT(members[1].Type.Members[1].Type.Binding);
+            UNIT_ASSERT_VALUES_EQUAL(members[2].Type.Arguments[0].Arguments[0].Name, "Int32");
+            UNIT_ASSERT(members[2].Type.Tags[0].Kind == EHintValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(members[2].Type.Tags[0].Text, "tag");
+            UNIT_ASSERT(members[3].Type.Tags[1].Kind == EHintValueKind::Binding);
+            UNIT_ASSERT_VALUES_EQUAL(members[3].Type.Tags[1].Text, "blue");
+            UNIT_ASSERT_VALUES_EQUAL(members[4].Type.Tags[0].Text, "handle");
+            UNIT_ASSERT_EXCEPTION(CollectTables(syntax), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(StructuredHintsRetainTypeIdentityAndRequireAdmission) {
+        for (const bool grammar : {false, true}) {
+            for (const auto* sql : {"SELECT * FROM t WITH SCHEMA Struct<a:Int32>",
+                "SELECT * FROM t WITH COLUMNS = $columns", "SELECT * FROM t WITH WATERMARK = ts - 1"}) {
+                const auto syntax = Ast(sql, grammar);
+                UNIT_ASSERT_EXCEPTION_C(CollectTables(syntax), TUnsupportedFeature, sql);
+                UNIT_ASSERT_EXCEPTION_C(BindNative(syntax, [](std::string_view, TSourcePosition) -> TCatalogTable {
+                    UNIT_FAIL("unsupported schema semantics reached catalog I/O"); return {};
+                }), TUnsupportedFeature, sql);
+            }
+            const auto fingerprint = [&](const char* sql) { return SyntaxFingerprint(Ast(sql, grammar)); };
+            UNIT_ASSERT(fingerprint("SELECT * FROM t WITH SCHEMA Struct<a:Int32>") != fingerprint("SELECT * FROM t WITH SCHEMA Struct<a:Int64>"));
+            UNIT_ASSERT(fingerprint("SELECT * FROM t WITH SCHEMA (a Int32)") != fingerprint("SELECT * FROM t WITH SCHEMA (a Int32 NOT NULL)"));
+            UNIT_ASSERT(fingerprint("SELECT * FROM t WITH WATERMARK = ts - 1") != fingerprint("SELECT * FROM t WITH WATERMARK = ts - 2"));
+            const auto ansi = Ast("--!ansi_lexer\nSELECT * FROM t WITH SCHEMA Struct<\"a\"\"b\":Decimal(20,3)?" "?>;", grammar);
+            const auto& member = std::get<TSyntaxType>(std::get<TSchemaHint>(ansi.Statements[0].Query->Source->Options->Hints[0].Value).Value).Members[0];
+            UNIT_ASSERT_VALUES_EQUAL(member.Name->Text, "a\"b");
+            UNIT_ASSERT_VALUES_EQUAL(member.Type.Parameters[0], "20");
+            UNIT_ASSERT_VALUES_EQUAL(member.Type.Parameters[1], "3");
+            UNIT_ASSERT_VALUES_EQUAL(member.Type.OptionalDepth, 2);
+        }
+    }
+
     Y_UNIT_TEST(InlineWindowWithFilterAndFrame) {
         for (const bool grammar : {false, true}) {
             const auto syntax = Ast(R"(SELECT SUM(x) FILTER (WHERE x > 0) OVER (
@@ -112,7 +190,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
             const auto& reference = *syntax.Expressions[select.Projection[0].Expression].Window;
             UNIT_ASSERT(reference.ReferenceOnly);
             UNIT_ASSERT_VALUES_EQUAL(reference.Name, "w");
-            const auto& hint = select.Source->Options->Hints[0];
+            const auto& hint = std::get<TGenericSourceHint>(select.Source->Options->Hints[0].Value);
             UNIT_ASSERT_VALUES_EQUAL(hint.Name, "hint");
             UNIT_ASSERT_VALUES_EQUAL(hint.Values[0].Text, "a'b");
         }
@@ -210,7 +288,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
             const auto& derived = select.Joins[0].Source;
             UNIT_ASSERT_VALUES_EQUAL(derived.Alias, "r");
             UNIT_ASSERT_VALUES_EQUAL(derived.Options->Hints.size(), 1);
-            UNIT_ASSERT_VALUES_EQUAL(derived.Options->Hints[0].Name, "infer");
+            UNIT_ASSERT_VALUES_EQUAL(std::get<TGenericSourceHint>(derived.Options->Hints[0].Value).Name, "infer");
             UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[derived.Options->Sampling->Rate].Text, "0.5");
             UNIT_ASSERT(!derived.Query->Source->Any && !derived.Query->Joins[0].Source.Any);
             UNIT_ASSERT_VALUES_EQUAL(select.Joins[1].Source.Alias, "s");
@@ -248,30 +326,31 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
                 SELECT * FROM u WITH truncate;)", grammar);
             const auto& source = *syntax.Statements[0].Query->Source;
             const auto& hints = source.Options->Hints;
+            const auto hint = [&](std::size_t i) -> const TGenericSourceHint& { return std::get<TGenericSourceHint>(hints[i].Value); };
             UNIT_ASSERT_VALUES_EQUAL(hints.size(), 5);
-            UNIT_ASSERT_VALUES_EQUAL(hints[0].Name, "infer");
-            UNIT_ASSERT(hints[0].Form == EHintValueForm::None && hints[0].Values.empty());
-            UNIT_ASSERT(hints[1].Form == EHintValueForm::Scalar);
-            UNIT_ASSERT(hints[1].Values[0].Kind == EHintValueKind::String);
-            UNIT_ASSERT_VALUES_EQUAL(hints[1].Values[0].Text, "csv");
-            UNIT_ASSERT(hints[2].Form == EHintValueForm::List);
-            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values.size(), 3);
-            UNIT_ASSERT(hints[2].Values[0].Kind == EHintValueKind::Identifier);
-            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[0].Text, "foo");
-            UNIT_ASSERT(hints[2].Values[1].Kind == EHintValueKind::String);
-            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[1].Text, "bar");
-            UNIT_ASSERT(hints[2].Values[2].Kind == EHintValueKind::Binding);
-            UNIT_ASSERT_VALUES_EQUAL(hints[2].Values[2].Text, "baz");
-            UNIT_ASSERT_VALUES_EQUAL(hints[3].Name, "format");
-            UNIT_ASSERT(hints[3].Values[0].Kind == EHintValueKind::Identifier);
-            UNIT_ASSERT(hints[4].Form == EHintValueForm::List && hints[4].Values.size() == 1);
+            UNIT_ASSERT_VALUES_EQUAL(hint(0).Name, "infer");
+            UNIT_ASSERT(hint(0).Form == EHintValueForm::None && hint(0).Values.empty());
+            UNIT_ASSERT(hint(1).Form == EHintValueForm::Scalar);
+            UNIT_ASSERT(hint(1).Values[0].Kind == EHintValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(hint(1).Values[0].Text, "csv");
+            UNIT_ASSERT(hint(2).Form == EHintValueForm::List);
+            UNIT_ASSERT_VALUES_EQUAL(hint(2).Values.size(), 3);
+            UNIT_ASSERT(hint(2).Values[0].Kind == EHintValueKind::Identifier);
+            UNIT_ASSERT_VALUES_EQUAL(hint(2).Values[0].Text, "foo");
+            UNIT_ASSERT(hint(2).Values[1].Kind == EHintValueKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(hint(2).Values[1].Text, "bar");
+            UNIT_ASSERT(hint(2).Values[2].Kind == EHintValueKind::Binding);
+            UNIT_ASSERT_VALUES_EQUAL(hint(2).Values[2].Text, "baz");
+            UNIT_ASSERT_VALUES_EQUAL(hint(3).Name, "format");
+            UNIT_ASSERT(hint(3).Values[0].Kind == EHintValueKind::Identifier);
+            UNIT_ASSERT(hint(4).Form == EHintValueForm::List && hint(4).Values.size() == 1);
             UNIT_ASSERT_VALUES_EQUAL(source.Alias, "src");
             UNIT_ASSERT_VALUES_EQUAL(syntax.Expressions[source.Options->Sampling->Rate].Text, "0.5");
             UNIT_ASSERT_VALUES_EQUAL(syntax.Statements[1].Query->Source->Options->Hints.size(), 1);
             const auto quoted = Ast("--!ansi_lexer\nSELECT * FROM t WITH (\"hint\" = 'a''b');", grammar);
-            const auto& hint = quoted.Statements[0].Query->Source->Options->Hints[0];
-            UNIT_ASSERT_VALUES_EQUAL(hint.Name, "hint");
-            UNIT_ASSERT_VALUES_EQUAL(hint.Values[0].Text, "a'b");
+            const auto& quotedHint = std::get<TGenericSourceHint>(quoted.Statements[0].Query->Source->Options->Hints[0].Value);
+            UNIT_ASSERT_VALUES_EQUAL(quotedHint.Name, "hint");
+            UNIT_ASSERT_VALUES_EQUAL(quotedHint.Values[0].Text, "a'b");
         }
     }
 

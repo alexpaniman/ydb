@@ -181,42 +181,87 @@ private:
         auto text = node->getText();
         return Identifier(text.substr(1), node);
     }
-    std::string Type(TTree* node) const {
-        if (Name(node) == "type_name_or_bind") {
-            if (auto* type = Child(node, "type_name")) return Type(type);
-            Unsupported(node, EFeature::Type, "type-valued bindings");
-        }
-        if (Name(node) == "type_name_optional") return Type(Child(node, "type_name_or_bind")) + "?";
-        if (Name(node) == "type_name_list") return "List<" + Type(Child(node, "type_name_or_bind")) + ">";
-        if (Name(node) == "type_name_tuple") {
-            std::string result = "Tuple<";
-            bool first = true;
-            for (auto* field : Children(node, "type_name_or_bind")) {
-                if (!first) result += ',';
-                result += Type(field);
-                first = false;
-            }
-            return result + '>';
-        }
-        if (Name(node) == "type_name_composite") {
-            auto* inner = Only(node);
-            if (Name(inner) != "type_name_optional" && Name(inner) != "type_name_list" && Name(inner) != "type_name_tuple")
-                Unsupported(node, EFeature::Type, "container types");
-            auto result = Type(inner);
-            for (auto* child : node->children) if (child->getText() == "?") result += '?';
-            return result;
-        }
-        if (Name(node) == "type_name") {
-            auto result = Type(Only(node));
-            for (auto* child : node->children) if (child->getText() == "?") result += '?';
-            return result;
-        }
-        if (Name(node) == "type_name_decimal") {
-            for (auto* arg : Children(node, "integer_or_bind"))
-                if (Child(arg, "bind_parameter")) Unsupported(node, EFeature::Type, "dynamic Decimal type");
-        }
-        return node->getText();
+    TSourceHintValue TypeTag(TTree* node) const {
+        if (auto* parameter = Child(node, "bind_parameter"))
+            return {EHintValueKind::Binding, Variable(parameter), Position(node)};
+        if (auto* identifier = Child(node, "id"))
+            return {EHintValueKind::Identifier, Id(identifier), Position(node)};
+        return {EHintValueKind::String, Decode(node->getText(), node), Position(node)};
     }
+    TSyntaxType SyntaxType(TTree* node) const {
+        const auto rule = Name(node);
+        if (rule == "type_name_or_bind") {
+            if (auto* type = Child(node, "type_name")) return SyntaxType(type);
+            TSyntaxType result;
+            result.Position = Position(node);
+            result.Binding = true;
+            result.Name = Variable(Child(node, "bind_parameter"));
+            return result;
+        }
+        if (rule == "type_name" || rule == "type_name_composite") {
+            auto result = SyntaxType(Only(node));
+            for (auto* child : node->children) if (child->getText() == "?") ++result.OptionalDepth;
+            return result;
+        }
+        TSyntaxType result;
+        result.Position = Position(node);
+        if (rule == "type_name_simple" || rule == "type_name_null") {
+            result.Name = Id(node);
+            return result;
+        }
+        result.Name = Id(node->children.front());
+        if (rule == "type_name_decimal") {
+            for (auto* arg : Children(node, "integer_or_bind")) {
+                if (Child(arg, "bind_parameter")) Unsupported(arg, EFeature::Type, "dynamic Decimal type");
+                result.Parameters.push_back(arg->getText());
+            }
+            return result;
+        }
+        if (rule != "type_name_optional" && rule != "type_name_list" && rule != "type_name_tuple" && rule != "type_name_dict" &&
+            rule != "type_name_set" && rule != "type_name_struct" && rule != "type_name_variant" && rule != "type_name_enum" &&
+            rule != "type_name_resource" && rule != "type_name_tagged" && rule != "type_name_stream" && rule != "type_name_flow" &&
+            rule != "type_name_linear" && rule != "type_name_dynamiclinear") Unsupported(node, EFeature::Type, "composite type");
+        for (auto* argument : Children(node, "type_name_or_bind")) result.Arguments.push_back(SyntaxType(argument));
+        for (auto* member : Children(node, rule == "type_name_struct" ? "struct_arg" : "variant_arg")) {
+            TSyntaxTypeMember value;
+            if (auto* name = Child(member, "type_name_tag")) value.Name = TypeTag(name);
+            value.Type = SyntaxType(Child(member, "type_name_or_bind"));
+            result.Members.push_back(std::move(value));
+        }
+        for (auto* tag : Children(node, "type_name_tag")) result.Tags.push_back(TypeTag(tag));
+        return result;
+    }
+    // Existing scalar declarations and casts consume canonical type spellings.
+    // Decode the CST once through SyntaxType, shared with schema hints.
+    std::string ScalarTypeName(const TSyntaxType& type) const {
+        if (type.Binding) throw TUnsupportedFeature(EFeature::Type, type.Position, "type-valued bindings");
+        const auto name = Upper(type.Name);
+        std::string result;
+        if (name == "OPTIONAL" && type.Arguments.size() == 1) result = ScalarTypeName(type.Arguments[0]) + '?';
+        else if (name == "LIST" || name == "TUPLE") {
+            result = name == "LIST" ? "List<" : "Tuple<";
+            for (std::size_t i = 0; i < type.Arguments.size(); ++i) {
+                if (i) result += ',';
+                result += ScalarTypeName(type.Arguments[i]);
+            }
+            result += '>';
+        } else if (name == "DECIMAL" && !type.Parameters.empty()) {
+            result = type.Name + '(';
+            for (std::size_t i = 0; i < type.Parameters.size(); ++i) {
+                if (i) result += ',';
+                result += type.Parameters[i];
+            }
+            result += ')';
+        } else {
+            if (!type.Arguments.empty() || !type.Members.empty() || !type.Tags.empty() ||
+                name == "STRUCT" || name == "VARIANT" || name == "ENUM")
+                throw TUnsupportedFeature(EFeature::Type, type.Position, "container types");
+            result = type.Name;
+        }
+        result.append(type.OptionalDepth, '?');
+        return result;
+    }
+    std::string Type(TTree* node) const { return ScalarTypeName(SyntaxType(node)); }
     TTree* TypeForm(TTree* node) const {
         while (Name(node) == "type_name" || Name(node) == "type_name_composite" || Name(node) == "type_name_or_bind") {
             if (Has(node, "?") || Child(node, "bind_parameter")) return node;
@@ -552,6 +597,32 @@ private:
         } else Unsupported(element, EFeature::GroupingSets, "hopping window grouping");
         return ExpandGroupingSets(elements, op, Settings.MaxNodes, Position(element));
     }
+    TSourceHint TableHint(TTree* node) {
+        TSourceHint result;
+        result.Position = Position(node);
+        if (auto* name = Child(node, "an_id_hint")) {
+            TGenericSourceHint hint{Id(name), EHintValueForm::None, {}};
+            hint.Form = Has(node, "(") ? EHintValueForm::List : Has(node, "=") ? EHintValueForm::Scalar : EHintValueForm::None;
+            for (auto* tag : Children(node, "type_name_tag")) hint.Values.push_back(TypeTag(tag));
+            result.Value = std::move(hint);
+        } else if (Has(node, "WATERMARK")) {
+            result.Value = TWatermarkHint{Expr(Child(node, "expr"))};
+        } else {
+            TSchemaHint hint;
+            hint.Columns = Has(node, "COLUMNS");
+            if (auto* type = Child(node, "type_name_or_bind")) hint.Value = SyntaxType(type);
+            else {
+                std::vector<TSchemaColumn> columns;
+                for (auto* column : Children(node, "struct_arg_positional")) {
+                    columns.push_back({TypeTag(Child(column, "type_name_tag")), SyntaxType(Child(column, "type_name_or_bind")),
+                        Has(column, "NOT") ? EColumnNullability::NotNull : Has(column, "NULL") ? EColumnNullability::Nullable : EColumnNullability::Default});
+                }
+                hint.Value = std::move(columns);
+            }
+            result.Value = std::move(hint);
+        }
+        return result;
+    }
     TSource Source(TTree* node) {
         if (Name(node) == "flatten_source") {
             if (Has(node, "FLATTEN")) Unsupported(node, EFeature::Type, "FLATTEN");
@@ -566,20 +637,7 @@ private:
             return *result.Options;
         };
         if (auto* hints = Child(hinted, "table_hints")) {
-            for (auto* hint : Children(hints, "table_hint")) {
-                auto* name = Child(hint, "an_id_hint");
-                if (!name) Unsupported(hint, EFeature::Backend, "schema or watermark hint");
-                TSourceHint value{Position(hint), Id(name), EHintValueForm::None, {}};
-                value.Form = Has(hint, "(") ? EHintValueForm::List : Has(hint, "=") ? EHintValueForm::Scalar : EHintValueForm::None;
-                for (auto* tag : Children(hint, "type_name_tag")) {
-                    if (auto* parameter = Child(tag, "bind_parameter"))
-                        value.Values.push_back({EHintValueKind::Binding, Variable(parameter), Position(tag)});
-                    else if (auto* identifier = Child(tag, "id"))
-                        value.Values.push_back({EHintValueKind::Identifier, Id(identifier), Position(tag)});
-                    else value.Values.push_back({EHintValueKind::String, Decode(tag->getText(), tag), Position(tag)});
-                }
-                options().Hints.push_back(std::move(value));
-            }
+            for (auto* hint : Children(hints, "table_hint")) options().Hints.push_back(TableHint(hint));
         }
         auto* sample = Child(node, "sample_clause");
         auto* tableSample = Child(node, "tablesample_clause");
@@ -888,9 +946,9 @@ private:
                 result.RowFields.emplace();
                 for (auto* field : Children(row, "struct_arg")) {
                     if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(Position(field), "parameter field limit exceeded");
-                    auto* tag = Child(field, "type_name_tag");
-                    if (Child(tag, "bind_parameter")) Unsupported(tag, EFeature::Type, "dynamic parameter field name");
-                    result.RowFields->emplace_back(Decode(tag->getText(), tag, bool(Child(tag, "id"))), Type(Child(field, "type_name_or_bind")));
+                    auto tag = TypeTag(Child(field, "type_name_tag"));
+                    if (tag.Kind == EHintValueKind::Binding) Unsupported(field, EFeature::Type, "dynamic parameter field name");
+                    result.RowFields->emplace_back(std::move(tag.Text), Type(Child(field, "type_name_or_bind")));
                 }
             } else result.Value = Type(type);
             return result;
@@ -1007,6 +1065,15 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     auto text = [&](std::string_view value) { out << value.size() << ':' << value; };
     std::function<void(const TSelect&)> select;
     std::function<void(const TSyntaxWindow&)> window;
+    const auto tag = [&](const TSourceHintValue& value) { out << static_cast<int>(value.Kind); text(value.Text); };
+    std::function<void(const TSyntaxType&)> type = [&](const TSyntaxType& value) {
+        out << "type[" << value.Binding << ',' << value.OptionalDepth; text(value.Name);
+        out << "arguments["; for (const auto& argument : value.Arguments) type(argument); out << ']';
+        out << "members[";
+        for (const auto& member : value.Members) { out << bool(member.Name); if (member.Name) tag(*member.Name); type(member.Type); }
+        out << "]tags["; for (const auto& item : value.Tags) tag(item); out << ']';
+        out << "parameters["; for (const auto& parameter : value.Parameters) text(parameter); out << "]]";
+    };
     std::function<void(TSyntaxId)> expr = [&](TSyntaxId id) {
         if (id == NoSyntax) { out << '-'; return; }
         const auto& node = query.Expressions.at(id);
@@ -1029,8 +1096,17 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         if (value.Query) select(*value.Query);
         if (value.Options) {
             for (const auto& hint : value.Options->Hints) {
-                out << "hint["; text(hint.Name); out << static_cast<int>(hint.Form);
-                for (const auto& argument : hint.Values) { out << static_cast<int>(argument.Kind); text(argument.Text); }
+                out << "hint[" << hint.Value.index();
+                if (const auto* generic = std::get_if<TGenericSourceHint>(&hint.Value)) {
+                    text(generic->Name); out << static_cast<int>(generic->Form);
+                    for (const auto& argument : generic->Values) tag(argument);
+                } else if (const auto* schema = std::get_if<TSchemaHint>(&hint.Value)) {
+                    out << schema->Columns << schema->Value.index();
+                    if (const auto* named = std::get_if<TSyntaxType>(&schema->Value)) type(*named);
+                    else for (const auto& column : std::get<std::vector<TSchemaColumn>>(schema->Value)) {
+                        tag(column.Name); type(column.Type); out << static_cast<int>(column.Nullability);
+                    }
+                } else expr(std::get<TWatermarkHint>(hint.Value).Expression);
                 out << ']';
             }
             if (value.Options->Sampling) {

@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <iterator>
+#include <variant>
 
 namespace NKikimr::NKqp::NFrontend {
 
@@ -71,11 +72,42 @@ struct TSourceHintValue {
     std::string Text;
     TSourcePosition Position;
 };
-struct TSourceHint {
+struct TSyntaxTypeMember;
+struct TSyntaxType {
     TSourcePosition Position;
+    std::string Name;
+    bool Binding = false;
+    std::uint32_t OptionalDepth = 0;
+    std::vector<TSyntaxType> Arguments;
+    std::vector<TSyntaxTypeMember> Members;
+    std::vector<TSourceHintValue> Tags;
+    std::vector<std::string> Parameters;
+};
+struct TSyntaxTypeMember {
+    std::optional<TSourceHintValue> Name;
+    TSyntaxType Type;
+};
+enum class EColumnNullability : std::uint8_t { Default, Nullable, NotNull };
+struct TSchemaColumn {
+    TSourceHintValue Name;
+    TSyntaxType Type;
+    EColumnNullability Nullability = EColumnNullability::Default;
+};
+struct TGenericSourceHint {
     std::string Name;
     EHintValueForm Form = EHintValueForm::None;
     std::vector<TSourceHintValue> Values;
+};
+struct TSchemaHint {
+    bool Columns = false;
+    std::variant<TSyntaxType, std::vector<TSchemaColumn>> Value;
+};
+struct TWatermarkHint {
+    TSyntaxId Expression;
+};
+struct TSourceHint {
+    TSourcePosition Position;
+    std::variant<TGenericSourceHint, TSchemaHint, TWatermarkHint> Value;
 };
 enum class ESamplingMode : std::uint8_t { Sample, Bernoulli, System };
 struct TSyntaxSampling {

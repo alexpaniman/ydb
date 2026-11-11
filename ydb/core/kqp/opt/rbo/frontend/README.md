@@ -29,6 +29,14 @@ Global references resolve to declaration IDs, including aliases of named queries
 source and IN uses share that resolution. Table discovery follows those bindings
 before catalog I/O. Scalar typing and local column resolution consume the owning
 syntax, never revisit the CST or reparse individual pragmas.
+
+The syntax contract is broader than execution admission. Source-local `ANY`,
+sampling, generic/schema/watermark hints, SQL `EXPLAIN`, and window modifiers
+retain their structured values even where execution is unsupported. Binding
+rejects those unsupported semantics before catalog I/O. Named-window references
+remain references in the AST and resolve within their query at binding; `OVER w`
+and `OVER (w)` retain distinct syntax. Type syntax is decoded from the CST in one
+place for schema hints, declarations and casts.
 Repeated `DECLARE` statements retain the first parameter type; the anonymous
 `$_` spelling cannot declare a parameter. SDK-supplied types must match that first declaration.
 Pragma arguments are decoded once into typed syntax, retaining flag, assignment
