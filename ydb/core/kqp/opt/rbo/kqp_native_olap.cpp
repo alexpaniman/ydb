@@ -87,6 +87,7 @@ bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
         case O::Negate: case O::Not: case O::And: case O::Or: case O::If:
         case O::IsNull: case O::IsNotNull: case O::Abs: case O::Length: case O::OptionalWrap:
         case O::Find: case O::Substring: case O::Concat: case O::Like: case O::ILike:
+        case O::RegexMatch: case O::RegexGrep:
         case O::Lower: case O::Upper:
             return true;
         default: return false;
@@ -167,7 +168,8 @@ bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFro
     return true;
 }
 
-bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root, bool allowScalarApply) {
+bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
+    bool allowScalarApply, bool allowRegexp) {
     if (!CanLowerNativeOlapPredicate(arena, root, allowScalarApply)) return false;
     const auto comparison = [](O op) {
         return (op >= O::Equal && op <= O::GreaterEqual) ||
@@ -187,7 +189,9 @@ bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFront
         if (!visited.insert((std::uint64_t{id} << 1) | predicate).second) continue;
         const auto& node = arena[id];
         bool childPredicates = false;
-        if (OlapIdentityConversion(arena, node)) childPredicates = predicate;
+        if (node.Op == O::RegexMatch || node.Op == O::RegexGrep) {
+            if (!allowScalarApply || !allowRegexp) return false;
+        } else if (OlapIdentityConversion(arena, node)) childPredicates = predicate;
         else if (predicate) {
             if (comparison(node.Op)) { /* Comparison operands are scalar values. */ }
             else {

@@ -76,7 +76,9 @@ Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
         UNIT_ASSERT(target[imported].Type == ImportNativeType(*emitted, &target));
         auto shared = source.ParseTypeName("Tuple<Int32>");
         for (unsigned i = 0; i < 24; ++i) shared = source.TupleType(std::array{shared, shared});
-        UNIT_ASSERT(ExportNativeType(shared, ctx, &source));
+        const auto* sharedBackend = ExportNativeType(shared, ctx, &source);
+        UNIT_ASSERT(sharedBackend);
+        UNIT_ASSERT(ImportNativeType(*sharedBackend, &target) == target.ImportType(source, shared));
         auto nested = source.TupleType({});
         for (unsigned i = 1; i < 64; ++i) nested = source.ListType(nested);
         UNIT_ASSERT_EXCEPTION(source.ListType(nested), TResourceLimitError);

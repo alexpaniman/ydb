@@ -34,6 +34,7 @@ Y_UNIT_TEST_SUITE(KqpNativeOlap) {
         service->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         service->SetEnableFallbackToYqlOptimizer(false);
         service->SetEnableOlapScalarApply(ScalarApply);
+        service->SetEnableOlapPushdownRegexp(true);
         service->SetAllowOlapDataQuery(true);
         TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
         auto client = runner.GetTableClient();
@@ -54,6 +55,8 @@ Y_UNIT_TEST_SUITE(KqpNativeOlap) {
         UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
         struct TCase { TString Predicate; TVector<i32> Expected; };
         const TVector<TCase> cases{
+            {"Re2::Match('a.*')(value)", {1, 4}}, {"NOT Re2::Match('a.*')(value)", {0, 2, 3, 5}},
+            {"Re2::Grep('b', NULL)(value)", {1, 4, 5}}, {"NOT Re2::Grep('b', NULL)(value)", {0, 2, 3}},
             {"value LIKE '%b%'", {1, 4, 5}}, {"NOT (value LIKE '%b%')", {2, 3}},
             {"StartsWith(value, 'a')", {1, 4}}, {"NOT StartsWith(value, 'a')", {2, 3, 5}},
             {"EndsWith(value, 'b')", {4, 5}}, {"NOT EndsWith(value, 'b')", {1, 2, 3}},

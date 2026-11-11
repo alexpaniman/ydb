@@ -765,26 +765,8 @@ NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend:
     return parameter;
 }
 
-NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena) {
-    if (type.GetKind() == ETypeAnnotationKind::List) {
-        Y_ENSURE(arena, "List import requires a native arena");
-        return arena->ListType(ImportNativeType(*type.Cast<TListExprType>()->GetItemType(), arena));
-    }
-    if (type.GetKind() == ETypeAnnotationKind::Optional) {
-        const auto* item = type.Cast<TOptionalExprType>()->GetItemType();
-        auto result = ImportNativeType(*item, arena);
-        if (result.OptionalDepth == 64) throw NFrontend::TResourceLimitError({}, "Optional type nesting exceeds 64");
-        ++result.OptionalDepth;
-        return result;
-    }
-    if (type.GetKind() == ETypeAnnotationKind::Tuple) {
-        Y_ENSURE(arena, "Tuple import requires a native arena");
-        std::vector<NFrontend::TType> items;
-        for (const auto* item : type.Cast<TTupleExprType>()->GetItems()) {
-            items.push_back(ImportNativeType(*item, arena));
-        }
-        return arena->TupleType(items);
-    }
+namespace {
+NFrontend::TType ImportNativeScalarType(const NYql::TTypeAnnotationNode& type) {
     if (type.GetKind() == ETypeAnnotationKind::Null) return {};
     if (type.GetKind() == ETypeAnnotationKind::Resource && type.Cast<TResourceExprType>()->GetTag() == "DateTime2.TM")
         return {K::Calendar};
@@ -796,6 +778,59 @@ NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFronte
         text += "(" + std::string(decimal->GetParamOne()) + "," + std::string(decimal->GetParamTwo()) + ")";
     }
     return NFrontend::ParseType(text);
+}
+} // namespace
+
+NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena) {
+    const auto compound = [](const auto& type) {
+        return type.GetKind() == ETypeAnnotationKind::List || type.GetKind() == ETypeAnnotationKind::Tuple ||
+            type.GetKind() == ETypeAnnotationKind::Optional;
+    };
+    const auto* base = &type;
+    unsigned optionalDepth = 0;
+    while (base->GetKind() == ETypeAnnotationKind::Optional) {
+        if (++optionalDepth > 64) throw NFrontend::TResourceLimitError({}, "Optional type nesting exceeds 64");
+        base = base->Cast<TOptionalExprType>()->GetItemType();
+    }
+    if (!compound(*base)) {
+        auto result = ImportNativeScalarType(*base);
+        result.OptionalDepth = optionalDepth;
+        return result;
+    }
+    // Backend types are interned DAGs. Visit each shared node once without
+    // recursion; scalar-only imports allocate neither a stack nor a map.
+    std::unordered_map<const NYql::TTypeAnnotationNode*, NFrontend::TType> imported;
+    std::vector<std::pair<const NYql::TTypeAnnotationNode*, bool>> pending{{base, false}};
+    while (!pending.empty()) {
+        const auto [node, ready] = pending.back(); pending.pop_back();
+        if (imported.contains(node)) continue;
+        if (!ready && compound(*node)) {
+            pending.emplace_back(node, true);
+            if (node->GetKind() == ETypeAnnotationKind::Tuple) {
+                for (const auto* item : node->Cast<TTupleExprType>()->GetItems()) pending.emplace_back(item, false);
+            } else pending.emplace_back(node->GetKind() == ETypeAnnotationKind::List
+                ? node->Cast<TListExprType>()->GetItemType() : node->Cast<TOptionalExprType>()->GetItemType(), false);
+            continue;
+        }
+        NFrontend::TType result;
+        if (node->GetKind() == ETypeAnnotationKind::List) {
+            Y_ENSURE(arena, "List import requires a native arena");
+            result = arena->ListType(imported.at(node->Cast<TListExprType>()->GetItemType()));
+        } else if (node->GetKind() == ETypeAnnotationKind::Optional) {
+            result = imported.at(node->Cast<TOptionalExprType>()->GetItemType());
+            if (result.OptionalDepth == 64) throw NFrontend::TResourceLimitError({}, "Optional type nesting exceeds 64");
+            ++result.OptionalDepth;
+        } else if (node->GetKind() == ETypeAnnotationKind::Tuple) {
+            Y_ENSURE(arena, "Tuple import requires a native arena");
+            std::vector<NFrontend::TType> items;
+            for (const auto* item : node->Cast<TTupleExprType>()->GetItems()) items.push_back(imported.at(item));
+            result = arena->TupleType(items);
+        } else result = ImportNativeScalarType(*node);
+        imported.emplace(node, result);
+    }
+    auto result = imported.at(base);
+    result.OptionalDepth = optionalDepth;
+    return result;
 }
 
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,

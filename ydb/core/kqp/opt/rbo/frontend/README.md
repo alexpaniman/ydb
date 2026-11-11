@@ -84,6 +84,9 @@ policy. Native OLAP capability checks live separately from physical emission.
 Computed ON equalities become input maps and join keys during construction.
 That preparation is private to the frontend handoff; the existing expression
 extraction rule still matches only filters over joins.
+Regular-expression storage admission retains the existing scalar-apply and
+`OptEnableOlapPushdownRegexp` gates. Native capability checks and the admission
+adapter are compared with the established collector independently of emission.
 
 Explicit index views retain the main-table identity through binding and execution
 preparation. The catalog admits ready synchronous row indexes on demand.
@@ -126,6 +129,9 @@ nor a semantic rewrite pass. Physical relational builders annotate the emitted g
 owned lowering pass for execution callables. They do not invoke YQL peepholes.
 Tuple aggregate results use their native result schema instead of assuming that
 every tuple is an AVG accumulator.
+Collection type import and export preserve shared type DAGs. Import uses an
+iterative traversal and visits each shared node once; ordinary scalar and
+optional-scalar imports need no traversal map.
 
 Physical stage preparation constructs wide channel adapters, then removes
 redundant row/flow/block adapters in one DAG traversal. Field projections retain

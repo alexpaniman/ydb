@@ -62,6 +62,77 @@ NYql::NNodes::TCoLambda NormalizeLegacyPredicate(const NYql::TExprNode::TPtr& pr
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeOlapPolicy) {
+    Y_UNIT_TEST(RegexAdmissionPreservesExistingConfiguration) {
+        using namespace NFrontend;
+        using namespace NYql;
+        for (const bool nullable : {false, true}) for (const bool fullMatch : {false, true})
+        for (const bool parameter : {false, true}) for (const bool negate : {false, true}) {
+            NTests::TIdTestContext f;
+            auto& arena = *f.Props.NativeExpressions;
+            auto& ctx = f.ExprCtx;
+            const auto id = f.Id("s");
+            const TType string{ETypeKind::String, nullable};
+            const auto pattern = parameter ? arena.Parameter("pattern", {ETypeKind::String})
+                : arena.Literal({ETypeKind::String}, std::string{"a.*"});
+            auto root = arena.Regex(arena.Column(id, string), pattern, fullMatch);
+            if (negate) root = arena.Unary(EOpcode::Not, root);
+
+            // Independently build the typed legacy runtime call. The policy
+            // oracle consumes its public UDF signature and configuration,
+            // never the native emitter's result or eligibility decision.
+            const auto atom = [&](TStringBuf text) {
+                auto node = ctx.NewAtom(f.Pos, text); node->SetTypeAnn(ctx.MakeType<TUnitExprType>()); return node;
+            };
+            const auto typed = [&](TStringBuf name, NYql::TExprNode::TListType args, const TTypeAnnotationNode* type) {
+                auto node = ctx.NewCallable(f.Pos, name, std::move(args)); node->SetTypeAnn(type); return node;
+            };
+            const auto syntax = [&](const TTypeAnnotationNode* type) { return LowerExecutionType(type, ctx, f.Pos); };
+            const auto* textType = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::String);
+            const auto* boolType = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Bool);
+            const auto* optionalText = ctx.MakeType<TOptionalExprType>(textType);
+            const auto* fieldType = nullable ? static_cast<const TTypeAnnotationNode*>(optionalText) : textType;
+            const auto* rowType = ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>("s", fieldType)});
+            auto row = ctx.NewArgument(f.Pos, "row"); row->SetTypeAnn(rowType);
+            auto member = typed("Member", {row, atom("s")}, fieldType);
+            if (!nullable) member = typed("Just", {member}, optionalText);
+            auto legacyPattern = parameter ? typed("Parameter", {atom("pattern"), syntax(textType)}, textType)
+                : typed("String", {atom("a.*")}, textType);
+            TVector<const TItemExprType*> fields;
+            for (const TStringBuf name : {"CaseSensitive", "DotNl", "Literal", "LogErrors", "LongestMatch", "MaxMem",
+                    "NeverCapture", "NeverNl", "OneLine", "PerlClasses", "PosixSyntax", "Utf8", "WordBoundary"})
+                fields.push_back(ctx.MakeType<TItemExprType>(name, name == "MaxMem"
+                    ? ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Uint64) : boolType));
+            const auto* optionsType = ctx.MakeType<TOptionalExprType>(ctx.MakeType<TStructExprType>(fields));
+            auto config = ctx.NewList(f.Pos, {legacyPattern, typed("Nothing", {syntax(optionsType)}, optionsType)});
+            config->SetTypeAnn(ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{textType, optionsType}));
+            const auto* signature = ctx.MakeType<TCallableExprType>(boolType,
+                TVector<TCallableExprType::TArgumentInfo>{{optionalText, {}, 0}}, 0, TStringBuf{});
+            auto settings = ctx.NewList(f.Pos, {});
+            settings->SetTypeAnn(ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{}));
+            const auto udf = typed("Udf", {atom(fullMatch ? "Re2.Match" : "Re2.Grep"), config,
+                syntax(ctx.MakeType<TVoidExprType>()), atom(""), syntax(signature), syntax(config->GetTypeAnn()), atom(""), settings}, signature);
+            auto legacy = typed("Apply", {udf, member}, boolType);
+            if (negate) legacy = typed("Not", {legacy}, boolType);
+            for (const bool apply : {false, true}) for (const bool regexp : {false, true}) {
+                NOpt::TOLAPPredicateNode collected;
+                NOpt::CollectPredicates(NNodes::TExprBase(legacy), collected, row.Get(), rowType, {apply, false, false, regexp});
+                const bool expected = apply ? collected.CanBePushedApply : collected.CanBePushed;
+                UNIT_ASSERT_VALUES_EQUAL(expected, apply && regexp);
+                UNIT_ASSERT_VALUES_EQUAL(CanPushNativeOlapPredicate(arena, root, apply, regexp), expected);
+                f.Config->SetEnableOlapScalarApply(apply);
+                f.Config->SetEnableOlapPushdownRegexp(regexp);
+                auto read = f.Read({id}); read->StorageType = NYql::EStorageType::ColumnStorage;
+                const auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(f.Props.NativeExpressions, root, &f.Props));
+                const auto result = TPushOlapFilterRule{}.SimpleMatchAndApply(filter, f.RboCtx, f.Props);
+                UNIT_ASSERT_VALUES_EQUAL(result->Kind == EOperator::Source && bool(CastOperator<TOpRead>(*result).OlapProgram), expected);
+                if (expected) {
+                    const auto emitted = LowerNativeOlapPredicate(arena, root, ctx, f.Pos);
+                    UNIT_ASSERT_VALUES_EQUAL(FindNodes(emitted, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).size(), 1);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(PredicateFormsMatchExistingNormalizationAndCollector) {
         using namespace NFrontend;
         using namespace NYql;

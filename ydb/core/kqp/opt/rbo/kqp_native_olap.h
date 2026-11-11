@@ -12,7 +12,7 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
 // Preserve the existing collector's predicate/operand admission rules in
 // addition to checking whether native emission can execute the expression.
 bool CanPushNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
-    NFrontend::TExprId root, bool allowScalarApply = false);
+    NFrontend::TExprId root, bool allowScalarApply = false, bool allowRegexp = false);
 bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
 
 namespace NDetail {
