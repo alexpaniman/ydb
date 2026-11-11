@@ -14,8 +14,8 @@
 
 namespace NKikimr::NKqp {
 
-Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
-    Y_UNIT_TEST(ScalarKeyEligibilityMatchesLegacyRangeExtraction) {
+namespace {
+    void CheckScalarKeyEligibility(bool computedBound) {
         using namespace NFrontend;
         using namespace NYql;
         TString mismatches;
@@ -32,7 +32,10 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             const auto parameterType = nullableBound ? scalarType.Optional() : scalarType;
             const auto key = f.Id("x");
             const auto arena = f.Props.NativeExpressions;
-            const auto predicate = arena->Binary(op, arena->Column(key, keyType), arena->Parameter("bound", parameterType));
+            auto bound = arena->Parameter("bound", parameterType);
+            if (computedBound) bound = arena->If(arena->Parameter("choose", {ETypeKind::Bool}),
+                bound, arena->Parameter("other", parameterType));
+            const auto predicate = arena->Binary(op, arena->Column(key, keyType), bound);
 
             // Independently construct the old range-extractor boundary. The
             // legacy optimizer is used only as a test oracle, never to form
@@ -45,8 +48,14 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             const auto row = ctx.NewArgument(f.Pos, "row"); row->SetTypeAnn(rowType);
             row->AddConstraint(ctx.MakeConstraint<TEmptyConstraintNode>());
             const auto member = ctx.NewCallable(f.Pos, "Member", {row, ctx.NewAtom(f.Pos, "x")});
-            const auto parameter = ctx.NewCallable(f.Pos, "Parameter", {
+            auto parameter = ctx.NewCallable(f.Pos, "Parameter", {
                 ctx.NewAtom(f.Pos, "bound"), ExpandType(f.Pos, *boundType, ctx)});
+            if (computedBound) {
+                const auto condition = ctx.NewCallable(f.Pos, "Parameter", {ctx.NewAtom(f.Pos, "choose"),
+                    ExpandType(f.Pos, *ctx.MakeType<TDataExprType>(EDataSlot::Bool), ctx)});
+                const auto other = ctx.NewCallable(f.Pos, "Parameter", {ctx.NewAtom(f.Pos, "other"), ExpandType(f.Pos, *boundType, ctx)});
+                parameter = ctx.NewCallable(f.Pos, "If", {condition, parameter, other});
+            }
             auto legacy = ctx.NewCallable(f.Pos, callable, {member, parameter});
             if (nullable || nullableBound) {
                 const auto otherwise = ctx.NewCallable(f.Pos, "Bool", {ctx.NewAtom(f.Pos, "false")});
@@ -86,6 +95,42 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
         UNIT_ASSERT_C(mismatches.empty(), mismatches);
     }
 
+} // namespace
+
+Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
+    Y_UNIT_TEST(ScalarKeyEligibilityMatchesLegacyRangeExtraction) {
+        CheckScalarKeyEligibility(false);
+    }
+
+    Y_UNIT_TEST(ClosedScalarBoundsMatchLegacyRangeExtraction) {
+        CheckScalarKeyEligibility(true);
+    }
+
+    Y_UNIT_TEST(ComputedBoundsRequireRepeatableRowIndependentValues) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        NTests::TIdTestContext f;
+        const auto key = f.Id("x");
+        const auto arena = f.Props.NativeExpressions;
+        auto table = MakeIntrusive<TKikimrTableMetadata>();
+        table->Name = "/Root/table"; table->DoesExist = true;
+        table->Kind = EKikimrTableKind::Datashard; table->KeyColumnNames = {"x"};
+        f.Tables->GetOrAddTable("ut", "/Root", table->Name).Metadata = table;
+        const auto value = arena->Column(key, {ETypeKind::Uint64});
+        const auto one = arena->Literal({ETypeKind::Uint64}, std::uint64_t{1});
+        const auto constant = arena->Binary(O::Add, arena->Parameter("bound", {ETypeKind::Uint64}), one);
+        for (const auto bound : {constant, arena->Binary(O::Add, value, one), arena->Call("RandomNumber", {})}) {
+            auto read = f.Read({key});
+            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos,
+                TExpression::FromNative(arena, arena->Binary(O::Equal, value, bound), &f.Props));
+            const auto nodes = f.ExprCtx.NodeAllocationCounter, types = f.ExprCtx.TypeNodes.size();
+            const auto result = TPushRangesRule(NYql::EStorageType::RowStorage).SimpleMatchAndApply(filter, f.RboCtx, f.Props);
+            UNIT_ASSERT_VALUES_EQUAL(result != filter, bound == constant);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        }
+    }
+
     Y_UNIT_TEST(UnorderedBoundsAndPointsExecuteWithoutSemanticLowering) {
         using namespace NFrontend;
         using namespace NYql;
@@ -96,6 +141,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
         for (const auto op : {O::Equal, O::Less, O::LessEqual, O::Greater, O::GreaterEqual})
         for (const unsigned boundKind : {0, 1, 2})
         for (const bool multiple : {false, true})
+        for (const unsigned form : {0, 1, 2})
         for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
             if ((multiple && op != O::Equal) || (boundKind == 2 && !nullableBound)) continue;
             const bool nan = boundKind == 1, absent = boundKind == 2, invalid = nan || absent;
@@ -104,7 +150,9 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             const auto key = f.Id("x");
             const auto arena = f.Props.NativeExpressions;
             const auto parameterType = nullableBound ? scalar.Optional() : scalar;
-            const auto parameter = arena->Parameter("bound", parameterType);
+            auto parameter = arena->Parameter("bound", parameterType);
+            if (form) parameter = arena->If(arena->Parameter("choose", {ETypeKind::Bool}),
+                parameter, arena->Parameter("other", parameterType));
             auto predicate = arena->Binary(op, arena->Column(key, keyType), parameter);
             if (multiple) {
                 const TScalar other = scalar.Kind == ETypeKind::Decimal ? TScalar{TDecimal{700}} : TScalar{7.0};
@@ -161,7 +209,12 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                 NCommon::TMkqlCommonCallableCompiler compiler;
                 NCommon::TMkqlBuildContext build(compiler, *setup.PgmBuilder, ctx);
                 const auto literal = LowerNativeLambda(*arena, arena->Literal(parameterType, bound), ctx, f.Pos)->TailPtr();
-                build.Parameters = setup.PgmBuilder->NewStruct({{"$bound", NCommon::MkqlBuildExpr(*literal, build)}});
+                const TScalar decoy = scalar.Kind == ETypeKind::Decimal ? TScalar{TDecimal{1700}} : TScalar{17.0};
+                const auto other = LowerNativeLambda(*arena, arena->Literal(parameterType, decoy), ctx, f.Pos)->TailPtr();
+                const auto selected = NCommon::MkqlBuildExpr(*literal, build), unselected = NCommon::MkqlBuildExpr(*other, build);
+                build.Parameters = setup.PgmBuilder->NewStruct({
+                    {"$bound", form == 2 ? unselected : selected}, {"$other", form == 2 ? selected : unselected},
+                    {"$choose", setup.PgmBuilder->NewDataLiteral<bool>(form != 2)}});
                 auto graph = setup.BuildGraph(NCommon::MkqlBuildExpr(*expression, build));
                 check(graph->GetValue());
             };
@@ -171,6 +224,11 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                 auto iterator = values.GetListIterator();
                 NUdf::TUnboxedValue interval;
                 UNIT_ASSERT(iterator.Next(interval));
+                const auto finite = interval.GetElement(op == O::Less || op == O::LessEqual ? 1 : 0).GetElement(0);
+                const NUdf::TUnboxedValuePod finiteValue = nullable ? finite.GetOptionalValue() : static_cast<NUdf::TUnboxedValuePod>(finite);
+                if (scalar.Kind == ETypeKind::Decimal) UNIT_ASSERT(finiteValue.GetInt128() == 300);
+                else if (scalar.Kind == ETypeKind::Float) UNIT_ASSERT_VALUES_EQUAL(finiteValue.Get<float>(), 3.0f);
+                else UNIT_ASSERT_VALUES_EQUAL(finiteValue.Get<double>(), 3.0);
                 if (op == O::Greater || op == O::GreaterEqual) {
                     const auto upper = interval.GetElement(1);
                     const auto item = upper.GetElement(0);

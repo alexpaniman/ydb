@@ -249,14 +249,15 @@ bool FitsNativeKey(const NFrontend::TScalar& value) {
     return false;
 }
 
-std::optional<NFrontend::TExprId> NativeBoundValue(NFrontend::TExpressionArena& arena,
-    NFrontend::TExprId id, NFrontend::TType keyType) {
+std::optional<NFrontend::TExprId> NativeBoundValue(const TExpression& expression, NFrontend::TType keyType) {
     using namespace NFrontend;
     using K = ETypeKind;
-    id = StripNativeOptionalLift(arena, id);
+    auto& arena = *expression.GetNativeArena();
+    auto id = StripNativeOptionalLift(arena, expression.GetNativeRoot());
     const auto& node = arena[id];
     keyType = keyType.Required();
-    if (node.Op == EOpcode::Parameter) {
+    if (node.Op != EOpcode::Literal) {
+        if (!node.Repeatable || !expression.GetRawInputIUs().Empty()) return {};
         const auto type = node.Type;
         const auto position = node.Position;
         if (type.OptionalDepth > 1) return {};
@@ -269,7 +270,7 @@ std::optional<NFrontend::TExprId> NativeBoundValue(NFrontend::TExpressionArena& 
         if (type.OptionalDepth) id = arena.Call("Unwrap", std::span{&id, 1}, position);
         return arena.Convert(id, keyType, position);
     }
-    if (node.Op != EOpcode::Literal || std::holds_alternative<std::monostate>(node.Value)) return {};
+    if (std::holds_alternative<std::monostate>(node.Value)) return {};
     if (node.Type == keyType) return id;
     if (node.Type.Required() == keyType || (node.Type.Kind == K::Utf8 && keyType.Kind == K::String))
         return arena.Literal(keyType, node.Value, node.Position);
@@ -411,7 +412,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         // IS NULL is a finite NULL point, unlike comparison with NULL (UNKNOWN).
         const auto bound = nullPoint
             ? (keyType.OptionalDepth ? std::optional{arena->Literal(keyType, {})} : std::nullopt)
-            : NativeBoundValue(*arena, value, keyType);
+            : NativeBoundValue(TExpression::FromNative(arena, value, &props), keyType);
         if (!bound) continue;
         auto& conditions = branchKeys[branch][props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
         auto& slot = nullPoint || op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
@@ -524,8 +525,8 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
                     root = conversion.Arguments[0];
                 }
                 const auto& node = (*arena)[root];
-                Y_ENSURE(node.Op == O::Literal || node.Op == O::Parameter);
-                const auto cell = node.Op == O::Parameter ? "p" + node.Name : "v" + FormatValue({node.Type, node.Value});
+                const auto cell = node.Op == O::Parameter ? "p" + node.Name : node.Op == O::Literal
+                    ? "v" + FormatValue({node.Type, node.Value}) : "e" + std::to_string(root);
                 key << cell.size() << ':' << cell;
             }
             if (!seen.insert(key).second) continue;

@@ -92,9 +92,11 @@ arena-owned tuple shapes; nested optional types preserve each optional layer.
 `TRboTable` holds catalog identity and native column types as values. Read ranges,
 lookup point prefixes, OLAP predicates, sink settings and stream lookup key types remain native
 through stage assignment.
-Range and lookup-point validity conditions are native required Booleans without
-row dependencies. They reject NULL comparison parameters and unordered NaN bounds;
-parameter unwrapping occurs only in the valid branch. Open upper bounds for Float,
+Range bounds may be literals, parameters or repeatable scalar expressions without
+row dependencies. Range and lookup-point validity conditions are native required
+Booleans. They reject NULL comparison values and unordered NaN bounds; nullable
+values are unwrapped only in the valid branch. Lookup points are deduplicated at
+runtime, including equal values from different computed expressions. Open upper bounds for Float,
 Double and Decimal stop before the NaN storage key. Physical emission constructs
 typed conditional lists directly. It does not use YQL range expansion helpers.
 Copying and expression visitors preserve these conditions with their bounds.

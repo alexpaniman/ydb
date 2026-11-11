@@ -159,21 +159,26 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
             UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
             for (const TString op : {"=", "<", "<=", ">", ">="})
             for (const bool disjunction : {false, true})
+            for (const unsigned form : {0, 1, 2, 3})
             // Reuse each query with absent, present, then absent values. A
             // compiled range must test the parameter at execution, not prepare.
             for (const bool present : {false, true, false}) {
                 const auto params = TParamsBuilder().AddParam("$bound")
-                    .OptionalInt32(present ? std::optional<i32>{2} : std::nullopt).Build().Build();
-                const auto query = TStringBuilder() << "DECLARE $bound AS Int32?; "
-                    << "SELECT id FROM `/Root/parameter_keys` WHERE id " << op << " $bound"
+                    .OptionalInt32(present ? std::optional<i32>{2} : std::nullopt).Build()
+                    .AddParam("$choose").Bool(form != 3).Build().Build();
+                const auto expression = form == 0 ? "$bound" : form == 1 ? "($bound + 0)"
+                    : "IF($choose, $bound, CAST(3 AS Int32?))";
+                const auto query = TStringBuilder() << "DECLARE $bound AS Int32?; DECLARE $choose AS Bool; "
+                    << "SELECT id FROM `/Root/parameter_keys` WHERE id " << op << " " << expression
                     << (disjunction ? " OR id = 3" : "") << " ORDER BY id;";
                 const auto result = client.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params).GetValueSync();
                 UNIT_ASSERT_C(result.IsSuccess(), query << ": " << result.GetIssues().ToString());
                 UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
                 TVector<i32> expected;
+                const auto bound = form == 3 ? 3 : 2;
                 for (const i32 value : {1, 2, 3}) {
-                    const bool matches = present && (op == "=" ? value == 2 : op == "<" ? value < 2 :
-                        op == "<=" ? value <= 2 : op == ">" ? value > 2 : value >= 2);
+                    const bool matches = (present || form == 3) && (op == "=" ? value == bound : op == "<" ? value < bound :
+                        op == "<=" ? value <= bound : op == ">" ? value > bound : value >= bound);
                     if (matches || (disjunction && value == 3)) expected.push_back(value);
                 }
                 TResultSetParser rows(result.GetResultSet(0));
