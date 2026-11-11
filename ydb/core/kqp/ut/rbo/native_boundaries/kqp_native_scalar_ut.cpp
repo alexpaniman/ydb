@@ -5,6 +5,19 @@
 namespace NKikimr::NKqp {
 using NTests::CheckScalar;
 Y_UNIT_TEST_SUITE(KqpNativeScalarBoundaries) {
+    Y_UNIT_TEST(DocumentLiteralBytesExecuteWithoutSemanticPasses) {
+        using namespace NFrontend;
+        for (const auto kind : {ETypeKind::Json, ETypeKind::Yson}) {
+            TExpressionArena arena;
+            auto value = arena.Literal({kind}, std::string("{}"));
+            for (unsigned depth = 0; depth < 3; ++depth) {
+                CheckScalar(arena, value, "document literal bytes");
+                value = arena.Unary(EOpcode::OptionalWrap, value);
+            }
+            CheckScalar(arena, arena.Literal({kind, true}, {}), "absent document literal");
+        }
+    }
+
     Y_UNIT_TEST(RegexMatchersExecuteWithoutSemanticPasses) {
         using namespace NFrontend;
         const std::pair<const char*, bool> cases[]{

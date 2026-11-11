@@ -70,7 +70,8 @@ inline void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TEx
                 if (actual == 0) UNIT_ASSERT_VALUES_EQUAL_C(std::signbit(actual), std::signbit(number), sql);
                 break;
             }
-            case K::String: case K::Utf8: case K::Uuid: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
+            case K::String: case K::Utf8: case K::Uuid: case K::Json: case K::Yson:
+                UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
             case K::Decimal: UNIT_ASSERT_C(value.GetInt128() == std::get<NFrontend::TDecimal>(expected.Data).Coefficient, sql); break;
             case K::Null: UNIT_FAIL("unexpected non-null Null");
             case K::Tuple: {
@@ -89,7 +90,7 @@ inline void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TEx
                 break;
             }
             case K::Calendar: UNIT_FAIL("calendar values must be consumed by scalar date operations");
-            case K::Json: case K::JsonDocument: UNIT_FAIL("JSON values must be consumed by scalar JSON operations");
+            case K::JsonDocument: UNIT_FAIL("binary JSON values must be consumed by scalar JSON operations");
         }
     };
     checkValue(checkValue, value, expected);
