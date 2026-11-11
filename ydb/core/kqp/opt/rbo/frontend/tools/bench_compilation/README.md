@@ -4,7 +4,7 @@
 the repository root, with a separate output directory for each candidate:
 
 ```bash
-python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_compilation/run.py \
+taskset -c 2-5 python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_compilation/run.py \
   --before /path/to/pre-migration-kqprun --after /path/to/native-kqprun \
   --framework /path/to/compilation_bench \
   --viewer /path/to/violinoscope/violinoscope.py \
@@ -36,6 +36,9 @@ order between batches and runs one variant at a time. Both query caches, optimiz
 fallback, and the optional YQL physical-stage peephole are disabled. The native
 variant additionally requires `NATIVE_REQUIRED`. Run without competing builds,
 tests, or profiles.
+Choose an available fixed CPU set for both variants; the example uses CPUs 2–5.
+The manifest records the inherited CPU affinity, and resume requires the same
+set. Untraced controls restore this affinity before starting their runners.
 
 Every request remains in the results, including pre-migration compilation
 failures. Native failure, missing native trace phases, or fallback makes the
@@ -53,7 +56,7 @@ Each measurement records which frontend phases were present so comparisons do
 not silently treat missing instrumentation as measured zero work.
 
 The manifest records binary, driver and layout hashes, input commands, source
-snapshot, observations, and trace hashes. `--resume` validates batch signatures
+snapshot, CPU affinity, observations, and trace hashes. `--resume` validates batch signatures
 and trace hashes, and preserves the original source snapshot. `--render-only`
 recreates reports from an existing manifest. Use `--no-render` to collect traces
 without immediately launching Violinoscope. `--limit` and `--workloads` are useful

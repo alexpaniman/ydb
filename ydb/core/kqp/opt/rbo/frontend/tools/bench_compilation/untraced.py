@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import statistics
@@ -64,10 +65,15 @@ def main():
     if min(args.repeats, args.warmups) < 1: parser.error('counts must be positive')
     manifest_path = args.comparison / 'manifest.json'
     source = json.loads(manifest_path.read_text())
+    if source.get('cpu_affinity') is not None:
+        os.sched_setaffinity(0, source['cpu_affinity'])
+    affinity = sorted(os.sched_getaffinity(0))
+    assert source.get('cpu_affinity', affinity) == affinity, 'Source CPU affinity is unavailable'
     native_modes = source.get('native_modes', ['after'])
     args.out.mkdir(parents=True, exist_ok=True)
     manifest = dict(source=str(manifest_path.resolve()), source_sha256=digest(manifest_path),
-                    script_sha256=digest(__file__), tracing=False, repeats=args.repeats, warmups=args.warmups, batches=[])
+                    script_sha256=digest(__file__), tracing=False, cpu_affinity=affinity,
+                    repeats=args.repeats, warmups=args.warmups, batches=[])
     # Match the traced driver: verify each frozen runner once per invocation.
     # Re-reading an 11 GB binary for every batch can dominate control runs.
     for mode, binary in source['binaries'].items():
@@ -86,7 +92,7 @@ def main():
             elif token == '--warmup-count': next(iterator); command += [token, str(args.warmups)]
             elif token == '--loop-count': next(iterator); command += [token, str(args.repeats)]
             else: command.append(token)
-        signature = hashlib.sha256(json.dumps([original['signature'], command]).encode()).hexdigest()
+        signature = hashlib.sha256(json.dumps([original['signature'], command, affinity]).encode()).hexdigest()
         result_path = destination / 'result.json'
         if result_path.exists():
             if not args.resume: raise ValueError(f'{destination} exists; use --resume')

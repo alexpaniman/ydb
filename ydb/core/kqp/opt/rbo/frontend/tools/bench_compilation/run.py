@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 import statistics
 import subprocess
@@ -222,11 +223,13 @@ def main():
                   viewer_head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=VIEWER.parent,text=True).strip(),
                   runner_sha256=digest(Path(__file__)),layout_sha256=digest(HERE/'compilation.layout.json'),
                   binaries={mode:str(path) for mode,path in binaries.items()},binary_sha256=binary_hashes,patch_sha256=hashlib.sha256(patch).hexdigest(),
-                  warmups=args.warmups,repeats=args.repeats,peephole=False,threads=1,limited=args.limit,batches=[])
+                  warmups=args.warmups,repeats=args.repeats,peephole=False,threads=1,
+                  cpu_affinity=sorted(os.sched_getaffinity(0)),limited=args.limit,batches=[])
     if existing:
         assert existing.get('native_modes', ['after']) == native_modes, 'Resume native modes changed'
         for key in ('binary_sha256', 'warmups', 'repeats', 'limited'):
             assert existing[key] == manifest[key], ('Resume settings changed', key)
+        assert existing.get('cpu_affinity') == manifest['cpu_affinity'], 'Resume CPU affinity changed or was not recorded'
         manifest = dict(existing, batches=[])
     configs={}
     for mode in ('before','after'):
