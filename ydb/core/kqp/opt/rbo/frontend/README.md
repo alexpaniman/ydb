@@ -59,6 +59,15 @@ restoring or promoting warnings remains explicitly unsupported.
 Only checked compilation can construct `TCompiledProgram`; conversion consumes it
 once. A raw binder result cannot enter RBO.
 
+Embedding callers may provide immutable `TExternalBindings` with native scalar
+values and callable bodies. `TScalarBinding` validates each body's explicit
+formal inputs once. Binding resolves external variables in the ordinary lexical
+scope, imports values on first use, and substitutes callable arguments through
+the native DAG importer with local type checking. Imported values and types
+belong to the resulting query; the caller's arena need not survive compilation.
+Unused values are not imported, and ordinary SQL has no external binding map.
+This interface accepts no backend nodes or unresolved runtime parameters.
+
 `CompileRowExpression` parses catalog scalar SQL through the same expression
 grammar and binder against an explicit row schema. It checks and folds native
 expressions without query bindings or table access. Generated write columns

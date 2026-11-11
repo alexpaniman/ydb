@@ -1,5 +1,6 @@
 #include "like.h"
 #include "frontend.h"
+#include "bindings.h"
 #include "predicate.h"
 
 #include <algorithm>
@@ -152,6 +153,7 @@ public:
     static constexpr std::uint32_t Unknown = std::numeric_limits<std::uint32_t>::max();
     static constexpr std::uint32_t Parameter = Unknown - 1;
     enum EOption : std::uint8_t { AnsiIn = 1, AnsiCurrentRow = 2, UnicodeLiterals = 4, ClassicDivision = 8, CheckedOps = 16 };
+    struct TExternal { const TScalarBinding* Body; bool Callable; };
 
     TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
         : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()),
@@ -163,6 +165,20 @@ public:
         Definitions.reserve(syntax.Statements.size());
         for (const auto& statement : syntax.Statements) Definitions.push_back(statement.Expression);
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
+        if (settings.ExternalBindings) {
+            const auto add = [&](const std::string& name, const TScalarBinding& body, bool callable) {
+                if (name.empty() || name.starts_with('$')) throw TFrontendError({}, "external binding names must omit '$'");
+                if (!callable && body.Arity()) throw TFrontendError({}, "external scalar value cannot have formal arguments");
+                if (!Names.emplace(name, Definitions.size()).second) throw TFrontendError({}, "duplicate external binding: " + name);
+                Definitions.push_back(NoSyntax);
+                External.push_back({&body, callable});
+            };
+            for (const auto& [name, body] : settings.ExternalBindings->Values) add(name, body, false);
+            for (const auto& [name, body] : settings.ExternalBindings->Callables) {
+                if (name.empty() || name.starts_with('$')) throw TFrontendError({}, "external binding names must omit '$'");
+                if (name.find("::") == std::string::npos) add(name, body, true);
+            }
+        }
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
             if (statement.Explain != EExplainMode::None)
@@ -192,6 +208,7 @@ public:
     }
 
     std::uint32_t operator[](TSyntaxId expression) const { return References.at(expression); }
+    std::span<const TExternal> ExternalValues() const { return External; }
     TSyntaxId Definition(std::uint32_t binding) const {
         return binding < Definitions.size() ? Definitions[binding] : NoSyntax;
     }
@@ -397,6 +414,7 @@ private:
     std::unordered_set<const TSelect*> UnnamedGroups;
     std::unordered_map<std::string, std::uint32_t> Names;
     std::vector<TSyntaxId> Definitions;
+    std::vector<TExternal> External;
     std::unordered_map<TSyntaxId, std::vector<std::uint32_t>> Lambdas;
     std::vector<std::unordered_map<std::string, std::uint32_t>> LocalScopes;
     std::unordered_map<const TSource*, std::uint32_t> Sources;
@@ -711,7 +729,7 @@ struct TBoundRegex {
     TExprId Pattern;
     bool FullMatch;
 };
-using TBindingValue = std::variant<TExprId, TBoundLambda, std::string, TBoundRegex>;
+using TBindingValue = std::variant<TExprId, TBoundLambda, std::string, TBoundRegex, TGlobalBindings::TExternal>;
 struct TBindingFrame {
     std::size_t Parent = NoBindingFrame;
     std::unordered_map<std::uint32_t, TBindingValue> Values;
@@ -740,8 +758,11 @@ class TBinder {
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings,
         const TGlobalBindings& bindings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(bindings), Values(syntax.Statements.size())
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(bindings),
+          Values(syntax.Statements.size() + bindings.ExternalValues().size())
     {
+        for (std::size_t i = 0; i < bindings.ExternalValues().size(); ++i)
+            Values[syntax.Statements.size() + i] = bindings.ExternalValues()[i];
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
         // Structural interning is used by window input/specification sharing.
@@ -2462,7 +2483,7 @@ private:
                     if (!args.empty()) throw TUnsupportedFeature(EFeature::Function, syntax.Position,
                         "raw random dependencies require SQL " + syntax.Text.substr(5) + "(arguments)");
                     result = arena.Call(std::string_view(name).substr(5), {}, syntax.Position);
-                } else result = arena.Call(name, args, syntax.Position);
+                } else result = CallScalar(syntax.Text, args, syntax.Position);
                 break;
             }
             case ESyntaxKind::Star: throw TFrontendError(syntax.Position, "star is only valid in projection or COUNT(*)");
@@ -2488,12 +2509,30 @@ private:
         throw TFrontendError(pos, "callable is not a scalar value");
     }
 
-    TBindingValue LookupBinding(std::uint32_t binding, const TExprContext& context, TSourcePosition pos) const {
+    TExprId CallScalar(std::string_view name, std::span<const TExprId> arguments, TSourcePosition pos) {
+        if (Settings.ExternalBindings && name.find("::") != std::string_view::npos) {
+            const auto found = Settings.ExternalBindings->Callables.find(std::string(name));
+            if (found != Settings.ExternalBindings->Callables.end()) {
+                const auto result = found->second.Apply(Program.Expressions, arguments, pos);
+                CheckSize(pos);
+                return result;
+            }
+        }
+        return Program.Expressions.Call(name, arguments, pos);
+    }
+
+    TBindingValue LookupBinding(std::uint32_t binding, const TExprContext& context, TSourcePosition pos) {
         for (auto frame = context.BindingFrame; frame != NoBindingFrame; frame = BindingFrames[frame].Parent) {
             const auto& values = BindingFrames[frame].Values;
             if (const auto found = values.find(binding); found != values.end()) return found->second;
         }
-        if (binding < Values.size() && Values[binding]) return *Values[binding];
+        if (binding < Values.size() && Values[binding]) {
+            if (const auto* external = std::get_if<TGlobalBindings::TExternal>(&*Values[binding]); external && !external->Callable) {
+                Values[binding] = external->Body->Apply(Program.Expressions, {}, pos);
+                CheckSize(pos);
+            }
+            return *Values[binding];
+        }
         throw TUnsupportedFeature(EFeature::Expression, pos, "binding is not a scalar or callable value");
     }
 
@@ -2534,10 +2573,17 @@ private:
         std::vector<TBindingValue> arguments;
         for (std::size_t i = named ? 0 : 1; i < syntax.Arguments.size(); ++i)
             arguments.push_back(BindingValue(syntax.Arguments[i], context));
+        if (const auto* external = std::get_if<TGlobalBindings::TExternal>(&callable); external && external->Callable) {
+            std::vector<TExprId> scalars;
+            for (const auto& argument : arguments) scalars.push_back(ScalarValue(argument, syntax.Position));
+            const auto result = external->Body->Apply(Program.Expressions, scalars, syntax.Position);
+            CheckSize(syntax.Position);
+            return result;
+        }
         if (const auto* name = std::get_if<std::string>(&callable)) {
             std::vector<TExprId> scalars;
             for (const auto& argument : arguments) scalars.push_back(ScalarValue(argument, syntax.Position));
-            return Program.Expressions.Call(*name, scalars, syntax.Position);
+            return CallScalar(*name, scalars, syntax.Position);
         }
         if (const auto* regex = std::get_if<TBoundRegex>(&callable)) {
             if (arguments.size() != 1) throw TFrontendError(syntax.Position, "regular expression matcher requires one input");

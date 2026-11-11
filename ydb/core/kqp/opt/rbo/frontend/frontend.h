@@ -178,6 +178,8 @@ struct TBoundProgram {
     std::vector<TPlannerSetting> PlannerSettings;
 };
 
+struct TExternalBindings;
+
 struct TBindSettings {
     // Generic-query semantics; data/scan APIs select the legacy IN default.
     bool AnsiIn = true;
@@ -187,6 +189,7 @@ struct TBindSettings {
     bool CheckedOps = false;
     std::string TablePathPrefix;
     std::unordered_map<std::string, TParameterType> ParameterTypes;
+    std::shared_ptr<const TExternalBindings> ExternalBindings;
     std::size_t MaxNodes = 1'000'000;
     std::size_t MaxExpansionDepth = 128;
 };

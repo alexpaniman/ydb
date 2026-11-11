@@ -8,6 +8,7 @@ RUN_PYTHON3(
 )
 
 SRCS(
+    bindings.cpp
     catalog.cpp
     document.cpp
     frontend.cpp

@@ -3,6 +3,7 @@ UNITTEST_FOR(ydb/core/kqp/opt/rbo)
 FORK_SUBTESTS()
 
 SRCS(
+    kqp_native_bindings_ut.cpp
     kqp_native_workload_ut.cpp
     kqp_native_layout_ut.cpp
     kqp_native_expression_arena_ut.cpp

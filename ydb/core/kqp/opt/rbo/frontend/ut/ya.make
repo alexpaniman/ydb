@@ -1,6 +1,7 @@
 UNITTEST()
 
 SRCS(
+    external_bindings_ut.cpp
     document_ut.cpp
     reference_ast_ut.cpp
     reference_types_ut.cpp
