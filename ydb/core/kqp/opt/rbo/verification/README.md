@@ -89,24 +89,35 @@ large allocation:
 python3 -m unittest ydb.core.kqp.opt.rbo.verification.tools.test_run_limited
 ```
 
-```bash
-RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
-  ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
-  ydb/core/kqp/opt/rbo/verification/ut 2>&1 | tail -n 100
+Use `dev.py` above for Python tests. The local balancer currently supports
+build-only `ya` invocations; do not pass test flags, including the combined
+`-tA` spelling. Build the native executable first, then run selected tests
+separately. This also avoids building the full native test suite's Z3/verifier
+dependencies when only structural export fixtures are selected.
 
+```bash
+set -o pipefail
 RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
   ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
+  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB \
   -DRBO_LOW_MEMORY_LINK=yes \
   ydb/core/kqp/opt/rbo/verification/native_cpp_ut 2>&1 | tail -n 100
 
-RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
-  ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
-  -DRBO_LOW_MEMORY_LINK=yes \
-  ydb/core/kqp/opt/rbo/verification/integration_ut 2>&1 | tail -n 100
+repository_root="$PWD"
+mkdir -p /var/tmp/rbo-native-fixtures/testing_out_stuff
+(
+  cd /var/tmp/rbo-native-fixtures
+  RBO_BUILD_CPUS=1 python3 "$repository_root/ydb/core/kqp/opt/rbo/verification/tools/run_limited.py" \
+    "$repository_root/ydb/core/kqp/opt/rbo/verification/native_cpp_ut/ydb-core-kqp-opt-rbo-verification-native_cpp_ut" \
+    'TNativeSemanticSnapshot::NativeStructure*' 2>&1 | tail -n 100
+)
 ```
+
+The conformance fixture writes filtered/unfiltered native and semantic JSON pairs
+to `testing_out_stuff/native-structure-conformance-*.{native,semantic}.json`.
+Keep these exports and their native source/binary identities for subsequent
+Python adapter checks. The remaining native tests may require additional test
+data, verifier executables and Z3; the structural-only filter does not run them.
 
 Tests include the build; add `-F '*test-filter*'` for a focused run.
 `native_cpp_ut` uses main's numeric column identities and current operator API.

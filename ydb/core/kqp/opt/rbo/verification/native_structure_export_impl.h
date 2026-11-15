@@ -322,7 +322,7 @@ private:
                 result["kind"] = "Root";
                 const auto& root = static_cast<const TOpRoot&>(source);
                 auto columns = JsonArray();
-                for (const auto& [id, label] : root.GetColumns()) {
+                for (const auto& [id, label] : root.GetColumns().Items()) {
                     Charge();
                     auto column = JsonMap();
                     column["id"] = ToString(id);
@@ -402,7 +402,7 @@ private:
             case EOperator::Map: {
                 const auto& map = static_cast<const TOpMap&>(source);
                 auto definitions = JsonArray();
-                for (const auto& [output, element] : map.GetMapElements()) {
+                for (const auto& [output, element] : map.GetMapElements().Items()) {
                     Charge();
                     auto definition = JsonMap();
                     definition["output"] = ToString(output);
@@ -425,7 +425,7 @@ private:
                 fields["join_kind"] = join.JoinKind;
                 fields["preserve_input_order"] = join.PreserveInputOrder;
                 auto keys = JsonArray();
-                for (const auto& key : join.JoinKeys) {
+                for (const auto& key : join.JoinKeys.Items()) {
                     Charge();
                     auto item = JsonMap();
                     item["left"] = ToString(key.first);

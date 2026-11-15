@@ -15139,6 +15139,8 @@ void TSemanticSnapshotPairCaptureV1::CaptureInitial(
         {},
         {},
         {},
+        {},
+        {},
     };
 
     try {
@@ -15194,6 +15196,8 @@ void TSemanticSnapshotPairCaptureV1::CaptureFinal(
         {},
         {},
         ctx.TransformationDebug.Events,
+        {},
+        {},
     };
 
     try {
@@ -15238,6 +15242,8 @@ void TSemanticSnapshotPairCaptureV1::CaptureTransformationPrefix(
         {},
         {},
         events,
+        {},
+        {},
     };
 
     try {
