@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import py_compile
 import shutil
+import signal
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -158,6 +163,34 @@ class OfflineWorkflowTest(unittest.TestCase):
         self.fake_verifier(status="UNKNOWN", code=0)
         self.assertEqual(self.run_fake("bad")["counts"], {"INFRA_ERROR": 1})
 
+    def test_same_size_source_edit_cannot_reuse_stale_bytecode(self):
+        self.add()
+        source = self.fake_verifier()
+        module = source / "rbo_verifier/__main__.py"
+        original = module.read_bytes()
+        metadata = module.stat()
+        # Place the control cache beside the fake module even when this test
+        # itself runs under dev.py's isolated cache namespace.
+        cache = module.parent / "__pycache__" / f"__main__.{sys.implementation.cache_tag}.pyc"
+        py_compile.compile(str(module), cfile=str(cache), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+        self.fake_verifier(status="UNKNOWN", code=2)
+        changed = module.read_bytes()
+        padding = len(original) - len(changed)
+        self.assertGreater(padding, 0)
+        module.write_bytes(changed + b"#" + b" " * (padding - 1))
+        os.utime(module, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+        self.assertEqual(module.stat().st_size, len(original))
+        # Control: -B alone still loads the obsolete timestamp cache. Ensure
+        # the fixture exercises that failure, rather than merely changing code.
+        environment = {**os.environ, "PYTHONPATH": str(source)}
+        environment.pop("PYTHONPYCACHEPREFIX", None)
+        stale = subprocess.run([sys.executable, "-B", "-m", "rbo_verifier"],
+                               env=environment, capture_output=True, text=True, timeout=2)
+        self.assertEqual(json.loads(stale.stdout)["status"], "VERIFIED_BOUNDED")
+        self.assertEqual(self.run_fake("fresh-source")["counts"], {"UNKNOWN": 1})
+        self.assertFalse((self.root / "fresh-source/q1/pycache").exists())
+
     def test_process_failure_never_becomes_proof(self):
         self.add()
         self.fake_verifier(extra="raise RuntimeError('fixture failure')")
@@ -194,6 +227,82 @@ class OfflineWorkflowTest(unittest.TestCase):
         receipt = json.loads((self.root / "timeout/q1/receipt.json").read_text())
         self.assertEqual(receipt["process"]["stop_reason"], "wall_timeout")
         self.assertLess(receipt["process"]["elapsed_seconds"], 3)
+
+    def descendant_program(self):
+        pidfile = self.root / "descendant.pid"
+        code = ("import os,pathlib,signal,time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                f"pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())); "
+                "time.sleep(10)")
+        return pidfile, code
+
+    def assert_descendant_stopped(self, pid):
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+            except FileNotFoundError:
+                return
+            if state == "Z":
+                return
+            time.sleep(0.02)
+        self.fail("offline guard left a live solver descendant")
+
+    @staticmethod
+    def cleanup_descendant(pidfile):
+        if pidfile.exists():
+            try:
+                os.kill(int(pidfile.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def test_normal_driver_exit_kills_uncooperative_descendant(self):
+        self.add()
+        pidfile, child = self.descendant_program()
+        self.addCleanup(self.cleanup_descendant, pidfile)
+        self.fake_verifier(extra=(
+            "import subprocess,time\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            "time.sleep(0.15)"
+        ))
+        result = self.run_fake("cleanup")
+        self.assertEqual(result["counts"], {"VERIFIED_BOUNDED": 1})
+        self.assertTrue(pidfile.exists())
+        self.assert_descendant_stopped(int(pidfile.read_text()))
+
+    def test_sigterm_kills_descendants_and_leaves_no_completion_marker(self):
+        self.add()
+        pidfile, child = self.descendant_program()
+        self.addCleanup(self.cleanup_descendant, pidfile)
+        source = self.fake_verifier(extra=(
+            "import subprocess,time\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            "time.sleep(10)"
+        ))
+        output = self.root / "interrupted"
+        command = [sys.executable, "-B", "-m", "offline", "run", str(self.corpus),
+                   "--output", str(output), "--solver", sys.executable, "--verifier-root", str(source)]
+        for key, value in self.limits().__dict__.items():
+            command.extend(("--" + key.replace("_", "-"), str(value)))
+        environment = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+                       "PYTHONDONTWRITEBYTECODE": "1"}
+        logfile = self.root / "interrupted.log"
+        with logfile.open("wb") as stream:
+            process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, env=environment)
+        try:
+            deadline = time.monotonic() + 2
+            while not pidfile.exists() and time.monotonic() < deadline and process.poll() is None:
+                time.sleep(0.02)
+            self.assertTrue(pidfile.exists(), logfile.read_text())
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=2)
+            self.assertEqual(process.returncode, 130, logfile.read_text())
+            self.assertFalse((output / "summary.json").exists())
+            self.assert_descendant_stopped(int(pidfile.read_text()))
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
     def test_scope_and_bounds_are_checked(self):
         case = self.add(scope="prefix")

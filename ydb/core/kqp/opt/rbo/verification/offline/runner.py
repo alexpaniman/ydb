@@ -256,7 +256,11 @@ def run_corpus(root: Path, output: Path, solver: Path, *, verifier_root: Path, l
     for case in cases:
         directory = output / case["id"]
         directory.mkdir()
-        arguments = [sys.executable, "-B", "-m", "rbo_verifier"]
+        # -B disables cache writes, but Python can still read a stale timestamp
+        # .pyc after a same-size edit within the filesystem's time granularity.
+        # An empty, case-private cache prefix forces source reads as well, so
+        # the source hashes in this receipt describe the code actually run.
+        arguments = [sys.executable, "-B", "-X", f"pycache_prefix={directory / 'pycache'}", "-m", "rbo_verifier"]
         inputs = case["inputs"]
         if case["scope"] == "bundle":
             arguments.extend(("--bundle", str(relative_file(root, inputs["bundle"]["path"]))))

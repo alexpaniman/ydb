@@ -118,6 +118,10 @@ verdicts and timings and separately identifies host/effective-limit differences;
 single measurements do not establish a stable speedup. Native runtime replay
 and fresh-main attribution remain separate validation steps.
 
+Every verifier child uses `-B` and a fresh per-case `-X pycache_prefix` directory.
+This prevents both cache writes and reuse of stale timestamp-based `.pyc` files
+after same-size edits; receipt hashes therefore track the Python source run.
+
 ## Fast tests
 
 The workflow tests exercise import integrity, joint-result packaging, strict

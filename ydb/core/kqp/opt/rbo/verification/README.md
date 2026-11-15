@@ -22,25 +22,65 @@ For a local visual walkthrough, open the standalone
 [RBO Observatory](../verification_explorer/README.md): saved plan graphs,
 operator inspection and counterexample traces, outside the proof-producing code.
 
+## Develop from exports
+
+The normal development loop uses saved exports and source Python. It does not
+build native code or start YDB. Use the [offline corpus workflow](offline/README.md)
+to import immutable initial/final snapshots, replay selected cases, and compare
+proofs and timings across Python changes. The corpus preserves exact input bytes,
+capture provenance, result-bundle order and diagnostic observation anchors.
+Store real captures and runs in a persistent directory, outside temporary caches.
+
+From the repository root, run focused tests with an existing solver:
+
+```bash
+python3 ydb/core/kqp/opt/rbo/verification/dev.py --suite core \
+  --solver /existing/path/z3 --require-solver
+
+python3 ydb/core/kqp/opt/rbo/verification/dev.py --suite workflow \
+  --solver /existing/path/z3 --require-solver
+```
+
+`dev.py` uses one CPU and the offline runner's allocation, address-space,
+process-tree RSS and wall-time limits. `--filter '*Name*'` narrows the test
+selection; `--artifacts NEW_DIRECTORY` retains logs and a process receipt.
+`--suite all` adds the full Python semantic suite. Without an explicit solver
+or `RBO_Z3`, solver-dependent tests are reported as skipped; they are not proofs.
+This command never invokes `ya` or downloads dependencies.
+
+For structures rejected by the native semantic exporter, the optional
+`--native-structure` capture sidecar preserves typed expression DAGs independently
+of semantic admission. The [Python native adapter](native_adapter/README.md)
+can inspect these archives and add reviewed scalar support without a native
+rebuild. Its first lowering path covers logical Read/Filter/Map/Root plans and
+is explicitly diagnostic. Incomplete operators, physical stages, subplans and
+effects remain rejected; structural dumps do not constitute proofs. Existing
+complete semantic endpoint snapshots retain the full ordinary verifier path.
+
+Native builds are needed when changing capture fields, production optimizer
+code, or the captured main revision. Batch those changes and recapture affected
+cases once; Python encoding and solver iteration should reuse existing exports.
+
 ## Build and test
 
 From the repository root. On this memory-constrained development host, use
-[the Linux build guard](tools/run_limited.py): it restricts CPU affinity to two
-CPUs, sets a hard 8 GiB data/allocation cap per process, and stops the process tree
+[the Linux build guard](tools/run_limited.py) with `RBO_BUILD_CPUS=1`: it restricts
+CPU affinity to one CPU, sets a hard 8 GiB data/allocation cap per process, and stops the process tree
 when sampled aggregate RSS exceeds 16 GiB or host available memory falls below
 16 GiB. The aggregate cutoff is monitored, not a kernel cgroup limit. Keep the
 explicit worker limits too; `ya --memory-limit` alone is not a hard memory cap.
 Virtual address space is capped separately at 64 GiB so the linker can map
 read-only archives and debug sections; those mappings still count toward the
-aggregate RSS guard when resident. Use `RBO_BUILD_CPUS=1` and `--threads=1`
-for a conservative link retry that reuses the existing compilation cache.
+aggregate RSS guard when resident. Keep one build/link/test worker and reuse
+the existing compilation cache. On this host, run native builds through
+`~/projects/clang-balancer/balance` as well; its scheduler complements the hard
+per-process limits and sampled tree guard. `YA_BUILD_THREADS=1` prevents the
+balancer from supplying a larger automatic build-worker count.
 For the server-sized `integration_ut`, `benchmark_ut`, `prefix_capture/bin`, and `ydb/core/kqp/ut/rbo`
 executables on Linux, add `-DRBO_LOW_MEMORY_LINK=yes`. This opt-in setting strips
 debug sections only when linking these executables and disables their GDB
 index. It reuses the `relwithdebinfo` objects; the resulting executables have
 no source-level debug information. Normal builds retain their debug information.
-After measuring memory headroom, `RBO_BUILD_CPUS=4` and `--threads=4` permit
-four workers with the same memory limits. The guard rejects CPU counts above four.
 It also kills tracked descendants when the build driver exits, including children
 that ignore termination. Its small process-lifecycle checks need no compiler or
 large allocation:
@@ -50,19 +90,19 @@ python3 -m unittest ydb.core.kqp.opt.rbo.verification.tools.test_run_limited
 ```
 
 ```bash
-python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
-  ./ya make --build relwithdebinfo --threads=2 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
   ydb/core/kqp/opt/rbo/verification/ut 2>&1 | tail -n 100
 
-python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
-  ./ya make --build relwithdebinfo --threads=2 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
   ydb/core/kqp/opt/rbo/verification/native_cpp_ut 2>&1 | tail -n 100
 
-python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
-  ./ya make --build relwithdebinfo --threads=2 --link-threads=1 \
-  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
   -DRBO_LOW_MEMORY_LINK=yes \
   ydb/core/kqp/opt/rbo/verification/integration_ut 2>&1 | tail -n 100
 ```
