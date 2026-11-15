@@ -87,6 +87,11 @@ struct TRBOSemanticSnapshotBoundaryResultV1 {
     // Unknown is not result zero. These fields describe capture, not a proof.
     std::optional<ui32> ResultOrdinal = std::nullopt;
     ui32 ResultCount = 0;
+    // Optional diagnostic sidecar. Never a semantic snapshot or a proof input
+    // without a separately reviewed offline adapter. A strict export rejection
+    // must not discard this structural evidence.
+    TString NativeStructureJson;
+    TString NativeStructureError;
 };
 
 class IRBOSemanticSnapshotSink {
@@ -100,6 +105,12 @@ public:
     // complete optimizer pipeline.  The default cannot affect optimization.
     virtual std::optional<ui64> GetTransformationPrefixTarget() const {
         return std::nullopt;
+    }
+
+    // Disabled by default: ordinary capture keeps its existing cost and wire
+    // contract. Observing structure never recomputes types or plan properties.
+    virtual bool CaptureNativeStructure() const {
+        return false;
     }
 };
 
@@ -127,6 +138,9 @@ public:
 
 private:
     void Deliver(TRBOSemanticSnapshotBoundaryResultV1 result) noexcept;
+    void AttachNativeStructure(
+        TOpRoot& root, const TRBOContext& ctx,
+        TRBOSemanticSnapshotBoundaryResultV1& result) noexcept;
 
     IRBOSemanticSnapshotSink* Sink = nullptr;
     std::optional<TSemanticSnapshotCatalogV1> Catalog;
@@ -146,5 +160,15 @@ TSemanticSnapshotExportResult ExportSemanticSnapshotV1(
 // Convenience overload for inspecting one plan.  Pairwise verification should
 // use CaptureSemanticSnapshotCatalogV1 and the overload above.
 TSemanticSnapshotExportResult ExportSemanticSnapshotV1(TOpRoot& root, const TRBOContext& ctx);
+
+// Versioned diagnostic structure for offline admission/model development. It
+// preserves typed native scalar trees even when the semantic exporter rejects
+// their callables. `logical_complete` only describes the explicitly captured
+// logical operator corridor; it does not certify semantic support or safety.
+// Missing catalog, unhandled operators, subplans and physical stage state are
+// explicit. No mutation, type annotation or property recomputation is performed.
+TSemanticSnapshotExportResult ExportNativeStructureSnapshotV1(
+    TOpRoot& root, const TRBOContext& ctx,
+    const TSemanticSnapshotCatalogV1* catalog = nullptr);
 
 } // namespace NKikimr::NKqp

@@ -43,12 +43,14 @@ struct TOptions {
     ui64 TransformationOrdinal = 0;
     bool BenchmarkColumnStore = false;
     TString QueryMode = "data";
+    bool NativeStructure = false;
 };
 
 class TRecordingSink final : public IRBOSemanticSnapshotSink {
 public:
-    explicit TRecordingSink(ui64 transformationOrdinal)
+    explicit TRecordingSink(ui64 transformationOrdinal, bool nativeStructure = false)
         : TransformationOrdinal(transformationOrdinal)
+        , NativeStructure(nativeStructure)
     {
     }
 
@@ -61,6 +63,10 @@ public:
         return TransformationOrdinal;
     }
 
+    bool CaptureNativeStructure() const override {
+        return NativeStructure;
+    }
+
     TVector<TRBOSemanticSnapshotBoundaryResultV1> Take() {
         std::lock_guard guard(Mutex);
         return std::move(Results);
@@ -68,6 +74,7 @@ public:
 
 private:
     const ui64 TransformationOrdinal;
+    const bool NativeStructure;
     std::mutex Mutex;
     TVector<TRBOSemanticSnapshotBoundaryResultV1> Results;
 };
@@ -99,6 +106,10 @@ TOptions ParseOptions(int argc, char** argv) {
     options.AddLongOption("query-mode", "Preparation mode: data, generic, or generic-spilling")
         .RequiredArgument("MODE")
         .StoreResult(&result.QueryMode);
+    options.AddLongOption("native-structure",
+            "Retain diagnostic typed native structures, including rejected semantic boundaries, for offline adapters")
+        .NoArgument()
+        .SetFlag(&result.NativeStructure);
     options.AddLongOption(
             "benchmark-column-store",
             "Apply benchmark_ut's exact TPCH/TPCDS column-store schema rewrite and query prelude")
@@ -356,7 +367,7 @@ void CaptureQuery(TKikimrRunner& runner, const TOptions& options, const TFsPath&
     if (!NYql::GetYqlDefaultModuleResolverWithContext(moduleResolver)) {
         ythrow yexception() << "cannot create the default YQL module resolver";
     }
-    auto sink = std::make_shared<TRecordingSink>(options.TransformationOrdinal);
+    auto sink = std::make_shared<TRecordingSink>(options.TransformationOrdinal, options.NativeStructure);
     auto config = MakeConfiguration(runner.GetTestServer(), options.QueryMode, options.BenchmarkColumnStore);
     auto host = MakeHost(
         runner.GetTestServer(),
@@ -395,6 +406,7 @@ void CaptureQuery(TKikimrRunner& runner, const TOptions& options, const TFsPath&
     attempt["preparation_succeeded"] = prepared.Success();
     attempt["preparation_issues"] = prepared.Issues().ToString();
     attempt["boundaries"] = NJson::TJsonValue(NJson::JSON_ARRAY);
+    size_t boundaryIndex = 0;
     for (const auto& boundary : boundaries) {
         NJson::TJsonValue item(NJson::JSON_MAP);
         item["boundary"] = boundary.Boundary == ERBOSemanticSnapshotBoundaryV1::Initial
@@ -409,7 +421,16 @@ void CaptureQuery(TKikimrRunner& runner, const TOptions& options, const TFsPath&
         }
         item["supported"] = boundary.IsSupported();
         item["unsupported_reason"] = boundary.UnsupportedReason;
+        if (options.NativeStructure) {
+            item["native_structure_error"] = boundary.NativeStructureError;
+            if (!boundary.NativeStructureJson.empty()) {
+                const TString filename = TStringBuilder() << "native-structure-" << boundaryIndex << ".json";
+                WriteNew(output / filename, boundary.NativeStructureJson);
+                item["native_structure"] = filename;
+            }
+        }
         attempt["boundaries"].AppendValue(std::move(item));
+        ++boundaryIndex;
     }
     // Keep preparation and exporter failures distinct even when no valid
     // capture manifest can be produced (e.g. an unsupported initial boundary).

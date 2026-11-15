@@ -93,6 +93,10 @@ public:
         return Sink.GetTransformationPrefixTarget();
     }
 
+    bool CaptureNativeStructure() const override {
+        return Sink.CaptureNativeStructure();
+    }
+
 private:
     IRBOSemanticSnapshotSink& Sink;
     TVector<ui32> ResultOrdinals;

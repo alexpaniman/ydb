@@ -222,6 +222,10 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
         std::optional<ui64> GetTransformationPrefixTarget() const override {
             return Sink->GetTransformationPrefixTarget();
         }
+
+        bool CaptureNativeStructure() const override {
+            return Sink->CaptureNativeStructure();
+        }
     };
     TVector<THolder<TRootSnapshotSink>> rootSinks;
     TVector<THolder<TSemanticSnapshotPairCaptureV1>> rootCaptures;

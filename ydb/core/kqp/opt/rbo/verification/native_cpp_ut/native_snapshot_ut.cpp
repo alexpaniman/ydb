@@ -593,6 +593,8 @@ public:
     void OnSemanticSnapshot(TRBOSemanticSnapshotBoundaryResultV1 result) override {
         Results.push_back(std::move(result));
     }
+    bool CaptureNativeStructure() const override { return NativeStructure; }
+    bool NativeStructure = false;
     TVector<TRBOSemanticSnapshotBoundaryResultV1> Results;
 };
 
@@ -2887,6 +2889,122 @@ TSemanticSnapshotCatalogCaptureResult NativeUniqueConstraintCatalog(TStringBuf m
 } // namespace
 
 Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
+    Y_UNIT_TEST(NativeStructurePreservesUnmodeledScalarDagAndBinaryAtoms) {
+        TFixture f;
+        const auto pos = TPositionHandle();
+        auto read = f.Read();
+        auto one = f.Expr.NewCallable(pos, "Int32", {f.Expr.NewAtom(pos, "1")});
+        const auto* int32 = f.Expr.MakeType<TDataExprType>(NUdf::EDataSlot::Int32);
+        one->SetTypeAnn(int32);
+        const TString bytes("\0\xff", 2);
+        auto body = f.Expr.NewCallable(pos, "FutureScalar", {one, one, f.Expr.NewAtom(pos, bytes)});
+        body->SetTypeAnn(int32);
+        auto expression = TExpression(body, &f.Expr, &f.ExpressionProps);
+        const auto output = f.Registry.Add(TInfoUnit("", "future"));
+        auto map = MakeIntrusive<TOpMap>(read, pos, TMapIUs{{output, TMapElement(expression)}});
+        f.SetType(*map, {{f.Key, int32}, {f.Other, int32}, {output, int32}});
+        TOpRoot root(map, pos, {{output, "answer"}});
+        root.PlanProps.InfoUnitRegistry = f.Registry;
+        const auto catalog = CaptureSemanticSnapshotCatalogV1(root, f.Rbo);
+        UNIT_ASSERT_C(catalog.IsSupported(), catalog.UnsupportedReason);
+        const auto strict = ExportSemanticSnapshotV1(root, f.Rbo, catalog.Catalog);
+        UNIT_ASSERT(!strict.IsSupported());
+        const auto first = ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog);
+        const auto raw = Parse(first);
+        UNIT_ASSERT_VALUES_EQUAL(raw["format"].GetString(), "ydb-rbo-native-structure");
+        UNIT_ASSERT_VALUES_EQUAL(raw["observation"].GetString(), "diagnostic_only");
+        UNIT_ASSERT(raw["logical_complete"].GetBoolean());
+        bool foundCall = false, foundBytes = false;
+        for (const auto& node : raw["expressions"].GetArray()) {
+            if (node["content_hex"].GetString() == "4675747572655363616c6172") {
+                foundCall = true;
+                const auto& children = node["children"].GetArray();
+                UNIT_ASSERT_VALUES_EQUAL(children.size(), 3);
+                UNIT_ASSERT(children[0] == children[1]);
+                UNIT_ASSERT_VALUES_EQUAL(node["type"]["text"].GetString(), "Int32");
+            }
+            foundBytes = foundBytes || node["content_hex"].GetString() == "00ff";
+        }
+        UNIT_ASSERT(foundCall && foundBytes);
+        UNIT_ASSERT_VALUES_EQUAL(first.Json, ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog).Json);
+        UNIT_ASSERT(!read->Props.OutputIUs); // Capture does not materialize caches.
+    }
+
+    Y_UNIT_TEST(NativeStructureIsOptInAndSurvivesSemanticRejection) {
+        for (const bool enabled : {false, true}) {
+            TFixture f;
+            auto expression = MakeConstant("Int32", "1", TPositionHandle(), &f.Expr);
+            // A deliberately unsupported relational operator still has native
+            // evidence. Missing catalog/completeness must never become a proof.
+            auto source = MakeIntrusive<TOpEmptySource>(TPositionHandle(), expression.Node);
+            TOpRoot root(source, TPositionHandle(), {});
+            root.PlanProps.InfoUnitRegistry = f.Registry;
+            TNativeCaptureSink sink;
+            sink.NativeStructure = enabled;
+            TSemanticSnapshotPairCaptureV1 capture(&sink);
+            capture.CaptureInitial(root, f.Rbo);
+            UNIT_ASSERT_VALUES_EQUAL(sink.Results.size(), 1);
+            const auto& boundary = sink.Results.front();
+            UNIT_ASSERT(!boundary.IsSupported());
+            UNIT_ASSERT_VALUES_EQUAL(boundary.NativeStructureJson.empty(), !enabled);
+            UNIT_ASSERT(boundary.NativeStructureError.empty());
+            if (enabled) {
+                NJson::TJsonValue raw;
+                UNIT_ASSERT(NJson::ReadJsonTree(boundary.NativeStructureJson, &raw, true));
+                UNIT_ASSERT(!raw["logical_complete"].GetBoolean());
+            }
+        }
+    }
+
+    Y_UNIT_TEST(NativeStructureExplicitlyRejectsPhysicalAndMissingCatalogCompleteness) {
+        TFixture f;
+        auto read = f.Read();
+        TOpRoot root(read, TPositionHandle(), {{f.Key, "key"}});
+        root.PlanProps.InfoUnitRegistry = f.Registry;
+        UNIT_ASSERT(!Parse(ExportNativeStructureSnapshotV1(root, f.Rbo))["logical_complete"].GetBoolean());
+        const auto catalog = CaptureSemanticSnapshotCatalogV1(root, f.Rbo);
+        UNIT_ASSERT_C(catalog.IsSupported(), catalog.UnsupportedReason);
+        UNIT_ASSERT(Parse(ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog))["logical_complete"].GetBoolean());
+        f.StageSerial(root);
+        const auto staged = Parse(ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog));
+        UNIT_ASSERT(staged["stage_graph_present"].GetBoolean());
+        UNIT_ASSERT(!staged["logical_complete"].GetBoolean());
+    }
+
+    Y_UNIT_TEST(NativeStructureCapsTypeDepthBeforeGenericFormatting) {
+        TFixture f;
+        auto read = f.Read();
+        TOpRoot root(read, TPositionHandle(), {{f.Key, "key"}});
+        root.PlanProps.InfoUnitRegistry = f.Registry;
+        const TTypeAnnotationNode* nested = f.Expr.MakeType<TDataExprType>(NUdf::EDataSlot::Int32);
+        for (size_t i = 0; i < 80; ++i) { nested = f.Expr.MakeType<TOptionalExprType>(nested); }
+        read->Type = nested;
+        const auto result = ExportNativeStructureSnapshotV1(root, f.Rbo);
+        UNIT_ASSERT(!result.IsSupported());
+        UNIT_ASSERT(result.Json.empty());
+        UNIT_ASSERT_C(result.UnsupportedReason.Contains("budget exceeded"), result.UnsupportedReason);
+    }
+
+    Y_UNIT_TEST(NativeStructureConfigurationFailureDoesNotChangeSemanticCapture) {
+        class TThrowingSink final : public IRBOSemanticSnapshotSink {
+        public:
+            bool CaptureNativeStructure() const override { ythrow yexception() << "structure-config-failed"; }
+            void OnSemanticSnapshot(TRBOSemanticSnapshotBoundaryResultV1 result) override {
+                Results.push_back(std::move(result));
+            }
+            TVector<TRBOSemanticSnapshotBoundaryResultV1> Results;
+        } sink;
+        TFixture f;
+        TOpRoot root(f.Read(), TPositionHandle(), {{f.Key, "key"}});
+        root.PlanProps.InfoUnitRegistry = f.Registry;
+        TSemanticSnapshotPairCaptureV1 capture(&sink);
+        capture.CaptureInitial(root, f.Rbo);
+        UNIT_ASSERT_VALUES_EQUAL(sink.Results.size(), 1);
+        UNIT_ASSERT_C(sink.Results.front().IsSupported(), sink.Results.front().UnsupportedReason);
+        UNIT_ASSERT(sink.Results.front().NativeStructureJson.empty());
+        UNIT_ASSERT(sink.Results.front().NativeStructureError.Contains("structure-config-failed"));
+    }
+
     Y_UNIT_TEST(NativeComputedDecimalIndexEqualityPreservesPrunedKeysAndSharedParameters) {
         for (const bool staged : {false, true}) {
             for (const bool unique : {false, true}) {

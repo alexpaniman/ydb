@@ -27,6 +27,7 @@
 #include <util/generic/map.h>
 #include <util/generic/set.h>
 #include <util/generic/yexception.h>
+#include <util/stream/output.h>
 #include <util/string/builder.h>
 #include <util/string/cast.h>
 
@@ -14789,6 +14790,8 @@ NJson::TJsonValue ExportCatalog(const TSemanticSnapshotCatalogV1& catalog) {
     return schema;
 }
 
+#include "native_structure_export_impl.h"
+
 TString SerializeSnapshot(
     TOpRoot& root,
     const TSemanticSnapshotCatalogV1& catalog,
@@ -15104,6 +15107,14 @@ TSemanticSnapshotExportResult ExportSemanticSnapshotV1(TOpRoot& root, const TRBO
     return ExportSemanticSnapshotV1(root, ctx, catalog.Catalog);
 }
 
+TSemanticSnapshotExportResult ExportNativeStructureSnapshotV1(
+    TOpRoot& root, const TRBOContext& ctx, const TSemanticSnapshotCatalogV1* catalog)
+{
+    return CatchUnsupported<TSemanticSnapshotExportResult>([&](auto& result) {
+        result.Json = TNativeStructureExporter(root, ctx.KqpCtx.Cluster, catalog).Export();
+    });
+}
+
 TSemanticSnapshotPairCaptureV1::TSemanticSnapshotPairCaptureV1(
     IRBOSemanticSnapshotSink* sink) noexcept
     : Sink(sink)
@@ -15164,6 +15175,7 @@ void TSemanticSnapshotPairCaptureV1::CaptureInitial(
         Catalog.reset();
     }
 
+    AttachNativeStructure(root, ctx, result);
     Deliver(std::move(result));
 }
 
@@ -15206,6 +15218,7 @@ void TSemanticSnapshotPairCaptureV1::CaptureFinal(
         result.UnsupportedReason = "Final semantic snapshot capture failed closed with an unknown exception";
     }
 
+    AttachNativeStructure(root, ctx, result);
     Deliver(std::move(result));
 }
 
@@ -15268,7 +15281,24 @@ void TSemanticSnapshotPairCaptureV1::CaptureTransformationPrefix(
             "Transformation-prefix semantic snapshot capture failed closed with an unknown exception";
     }
 
+    AttachNativeStructure(root, ctx, result);
     Deliver(std::move(result));
+}
+
+void TSemanticSnapshotPairCaptureV1::AttachNativeStructure(
+    TOpRoot& root, const TRBOContext& ctx,
+    TRBOSemanticSnapshotBoundaryResultV1& result) noexcept
+{
+    try {
+        if (!Sink || !Sink->CaptureNativeStructure()) { return; }
+        auto native = ExportNativeStructureSnapshotV1(root, ctx, Catalog ? &*Catalog : nullptr);
+        result.NativeStructureJson = std::move(native.Json);
+        result.NativeStructureError = std::move(native.UnsupportedReason);
+    } catch (const std::exception& error) {
+        result.NativeStructureError = TStringBuilder() << "Native structure capture failed: " << error.what();
+    } catch (...) {
+        result.NativeStructureError = "Native structure capture failed with an unknown exception";
+    }
 }
 
 std::optional<ui64> TSemanticSnapshotPairCaptureV1::GetTransformationPrefixTarget() const noexcept {
