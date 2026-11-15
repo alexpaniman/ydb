@@ -90,8 +90,8 @@ struct TRBOSemanticSnapshotBoundaryResultV1 {
     // Optional diagnostic sidecar. Never a semantic snapshot or a proof input
     // without a separately reviewed offline adapter. A strict export rejection
     // must not discard this structural evidence.
-    TString NativeStructureJson;
-    TString NativeStructureError;
+    TString NativeStructureJson = {};
+    TString NativeStructureError = {};
 };
 
 class IRBOSemanticSnapshotSink {
