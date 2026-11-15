@@ -2889,6 +2889,49 @@ TSemanticSnapshotCatalogCaptureResult NativeUniqueConstraintCatalog(TStringBuf m
 } // namespace
 
 Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
+    Y_UNIT_TEST(NativeStructurePersistsTypedLogicalConformanceFixtures) {
+        for (const bool filtered : {false, true}) {
+            TFixture f;
+            const auto pos = TPositionHandle();
+            TIntrusivePtr<IOperator> input = f.Read();
+            if (filtered) {
+                input = MakeIntrusive<TOpFilter>(input, pos, NativeScalarFromExpr(f, true));
+            }
+            const auto key = f.Registry.Add(TInfoUnit("", "key"));
+            const auto matches = f.Registry.Add(TInfoUnit("", "matches"));
+            auto map = MakeIntrusive<TOpMap>(input, pos, TMapIUs{
+                {key, TMapElement(MakeColumnAccess(f.Key, pos, &f.Expr, &f.ExpressionProps))},
+                {matches, TMapElement(NativeScalarFromExpr(f, true))}});
+            TOpRoot root(map, pos, {{key, "key"}, {matches, "matches"}});
+            root.PlanProps.InfoUnitRegistry = f.Registry;
+            for (const auto& entry : root) {
+                entry.Current->BindExpressionPlanProps(&root.PlanProps);
+            }
+            auto annotation = CreateTypeAnnotationTransformer(
+                CreateExtCallableTypeAnnotationTransformer(f.Types), f.Types);
+            TRBOContext rbo(f.Optimize, f.Expr, f.Types, *annotation, *f.Functions);
+            TNativeCaptureSink sink;
+            sink.NativeStructure = true;
+            TSemanticSnapshotPairCaptureV1 capture(&sink);
+            capture.CaptureInitial(root, rbo);
+            UNIT_ASSERT_VALUES_EQUAL(sink.Results.size(), 1);
+            const auto& boundary = sink.Results.front();
+            UNIT_ASSERT_C(boundary.IsSupported(), boundary.UnsupportedReason);
+            UNIT_ASSERT_C(!boundary.NativeStructureJson.empty(), boundary.NativeStructureError);
+            NJson::TJsonValue raw;
+            UNIT_ASSERT(NJson::ReadJsonTree(boundary.NativeStructureJson, &raw, true));
+            UNIT_ASSERT(raw["logical_complete"].GetBoolean());
+            UNIT_ASSERT_VALUES_EQUAL(raw["operators"].GetArray().size(), filtered ? 4 : 3);
+            // Stable native-generated inputs for offline adapter conformance.
+            // Each pair describes the same plan; comparing filtered/unfiltered
+            // plans additionally exercises a dropped-filter counterexample.
+            const TString prefix = filtered
+                ? "native-structure-conformance-filtered" : "native-structure-conformance-unfiltered";
+            TFileOutput((GetOutputPath() / (prefix + ".native.json")).GetPath()).Write(boundary.NativeStructureJson);
+            TFileOutput((GetOutputPath() / (prefix + ".semantic.json")).GetPath()).Write(boundary.Json);
+        }
+    }
+
     Y_UNIT_TEST(NativeStructurePreservesUnmodeledScalarDagAndBinaryAtoms) {
         TFixture f;
         const auto pos = TPositionHandle();
@@ -2965,7 +3008,7 @@ Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
         const auto catalog = CaptureSemanticSnapshotCatalogV1(root, f.Rbo);
         UNIT_ASSERT_C(catalog.IsSupported(), catalog.UnsupportedReason);
         UNIT_ASSERT(Parse(ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog))["logical_complete"].GetBoolean());
-        f.StageSerial(root);
+        read->Props.StageId = root.PlanProps.StageGraph.AddSourceStage(NYql::EStorageType::RowStorage);
         const auto staged = Parse(ExportNativeStructureSnapshotV1(root, f.Rbo, &catalog.Catalog));
         UNIT_ASSERT(staged["stage_graph_present"].GetBoolean());
         UNIT_ASSERT(!staged["logical_complete"].GetBoolean());

@@ -76,12 +76,12 @@ the existing compilation cache. On this host, run native builds through
 `~/projects/clang-balancer/balance` as well; its scheduler complements the hard
 per-process limits and sampled tree guard. `YA_BUILD_THREADS=1` prevents the
 balancer from supplying a larger automatic build-worker count.
-For the server-sized `integration_ut`, `benchmark_ut`, `prefix_capture/bin`, and `ydb/core/kqp/ut/rbo`
+For `native_cpp_ut` and the server-sized `integration_ut`, `benchmark_ut`, `prefix_capture/bin`, and `ydb/core/kqp/ut/rbo`
 executables on Linux, add `-DRBO_LOW_MEMORY_LINK=yes`. This opt-in setting strips
 debug sections only when linking these executables and disables their GDB
 index. It reuses the `relwithdebinfo` objects; the resulting executables have
 no source-level debug information. Normal builds retain their debug information.
-It also kills tracked descendants when the build driver exits, including children
+The build guard also kills tracked descendants when the build driver exits, including children
 that ignore termination. Its small process-lifecycle checks need no compiler or
 large allocation:
 
@@ -98,6 +98,7 @@ RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/to
 RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
   ~/projects/clang-balancer/balance ./ya make --build relwithdebinfo --threads=1 --link-threads=1 \
   --test-threads=1 --dist-store-threads=1 --memory-limit=48GB -tA \
+  -DRBO_LOW_MEMORY_LINK=yes \
   ydb/core/kqp/opt/rbo/verification/native_cpp_ut 2>&1 | tail -n 100
 
 RBO_BUILD_CPUS=1 YA_BUILD_THREADS=1 python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \

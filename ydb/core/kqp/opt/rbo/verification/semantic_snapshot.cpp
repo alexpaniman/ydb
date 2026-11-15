@@ -28,6 +28,7 @@
 #include <util/generic/set.h>
 #include <util/generic/yexception.h>
 #include <util/stream/output.h>
+#include <util/stream/str.h>
 #include <util/string/builder.h>
 #include <util/string/cast.h>
 
