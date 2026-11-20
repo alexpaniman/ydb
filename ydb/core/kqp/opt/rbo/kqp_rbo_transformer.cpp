@@ -4,6 +4,7 @@
 #include "traces/kqp_rbo_trace_output.h"
 
 #include <ydb/core/kqp/host/kqp_transform.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 
 #include <util/generic/algorithm.h>
 #include <util/generic/string.h>
@@ -54,6 +55,10 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr in
     if (NativeOptimized) return TStatus::Ok;
     for (auto& root : Roots) {
         root->ComputeParents();
+    }
+    if (const auto& trace = KqpCtx.CompileTrace; trace && trace->CaptureRboRoots) {
+        trace->CaptureRboRoots(Roots, ctx);
+        return TStatus::Error;
     }
     if (IsSuitableToRequestStatistics()) {
         const auto status = RequestColumnStatistics(ctx);
