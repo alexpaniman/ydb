@@ -3,20 +3,31 @@
 #include <ydb/library/actors/wilson/wilson_span.h>
 #include <ydb/library/wilson_ids/wilson.h>
 
+#include <util/generic/ptr.h>
+#include <util/generic/vector.h>
+
+#include <functional>
 #include <memory>
 #include <utility>
 
+namespace NYql {
+struct TExprContext;
+}
+
 namespace NKikimr::NKqp {
+
+class TOpRoot;
 
 // One compilation owns this context. Synchronous scopes nest within each
 // actor invocation; no open scope crosses an asynchronous suspension.
 struct TCompileTrace {
     static constexpr ui8 Level = TComponentTracingLevels::TQueryProcessor::Detailed;
     NWilson::TTraceId Current;
+    std::function<void(const TVector<TIntrusivePtr<TOpRoot>>&, NYql::TExprContext&)> CaptureRboRoots;
 
     static std::shared_ptr<TCompileTrace> Create(const NWilson::TTraceId& parent) {
         if (!parent || parent.GetVerbosity() < Level) return {};
-        return std::make_shared<TCompileTrace>(TCompileTrace{parent.Clone()});
+        return std::make_shared<TCompileTrace>(TCompileTrace{parent.Clone(), {}});
     }
 };
 

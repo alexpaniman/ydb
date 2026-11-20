@@ -1,6 +1,7 @@
 #include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/library/yql/providers/ydb_external/common/provider_names.h>
 #include "kqp_host_impl.h"
+#include "kqp_native_inspection.h"
 #include "kqp_statement_rewrite.h"
 #include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
@@ -1362,6 +1363,21 @@ public:
             });
     }
 
+    IAsyncQueryResultPtr PrepareNativeForInspection(
+        const std::shared_ptr<TCompileTrace>& trace, const TNativeInspectionInput& import)
+    {
+        Y_ENSURE(trace && trace->CaptureRboRoots);
+        return CheckedProcessQuery(*ExprCtx, [&](TExprContext& ctx) -> IAsyncQueryResultPtr {
+            const auto queryType = EKikimrQueryType::Query;
+            SetupSession(queryType, /*nativeFrontend=*/true);
+            SetupQueryParameters({}, queryType);
+            auto native = import(ctx, *SessionCtx);
+            native.CompileTrace = trace;
+            Init(queryType, /*nativeBackend=*/true);
+            return KqpRunner->PrepareNativeQuery(Cluster, std::move(native), ctx, {});
+        });
+    }
+
     IAsyncQueryResultPtr PrepareGenericScript(const TKqpQueryRef& query, const TPrepareSettings& settings, NYql::TExprNode::TPtr expr = nullptr) override {
         return CheckedProcessQuery(*ExprCtx,
             [this, &query, settings, expr] (TExprContext& ctx) mutable {
@@ -2659,6 +2675,12 @@ Ydb::Table::QueryStatsCollection::Mode GetStatsMode(NYql::EKikimrStatsMode stats
         default:
             return Ydb::Table::QueryStatsCollection::STATS_COLLECTION_NONE;
     }
+}
+
+IKqpHost::IAsyncQueryResultPtr PrepareNativeForInspection(IKqpHost& host,
+    const std::shared_ptr<TCompileTrace>& trace, const TNativeInspectionInput& import)
+{
+    return dynamic_cast<TKqpHost&>(host).PrepareNativeForInspection(trace, import);
 }
 
 TIntrusivePtr<IKqpHost> CreateKqpHost(TIntrusivePtr<IKqpGateway> gateway, const TString& cluster,
