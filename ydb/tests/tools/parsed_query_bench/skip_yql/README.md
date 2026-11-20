@@ -23,7 +23,7 @@ intervals separately. RPC, physical compilation and execution are outside both.
 
 ```sh
 dir=ydb/tests/tools/parsed_query_bench/skip_yql
-./ya make --threads=10 --link-threads=1 --build relwithdebinfo -DNO_DEBUGINFO=yes -tA "$dir"
+./ya make --threads=10 --link-threads=1 --build relwithdebinfo -DNO_DEBUGINFO=yes "$dir"
 bench="$dir/parsed_query_skip_yql_bench"
 
 "$bench" --catalog catalog.json --verify text.pb logical_plan.pb
@@ -33,6 +33,7 @@ bench="$dir/parsed_query_skip_yql_bench"
 
 The integration tests in [ut/test_skip_yql.py](ut/test_skip_yql.py) contain a
 complete parameterized SELECT, its catalog and the matching protobuf text.
+Run the six tests with the same build command and the additional flag `-tA`.
 The server benchmark verifies the native logical operations and ordered result
 columns before warmup, then alternates which route runs first in each round.
 A mismatch or unsupported input produces an error before timed rows are written.
