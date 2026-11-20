@@ -3,6 +3,7 @@
 #include "signature.h"
 
 #include <ydb/core/base/appdata.h>
+#include <ydb/core/kqp/common/kqp_user_request_context.h>
 #include <ydb/core/kqp/common/simple/query_ref.h>
 #include <ydb/core/kqp/host/kqp_native_inspection.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
@@ -216,7 +217,8 @@ struct TRunner::TImpl {
                     || meta->Kind == EKikimrTableKind::SysView) && !meta->Temporary, "Unsupported LogicalPlan table kind");
                 metadata.push_back(meta);
                 auto table = MakeRboTable(*meta);
-                const auto storage = meta->Kind == EKikimrTableKind::Olap ? EStorageType::ColumnStorage : EStorageType::RowStorage;
+                const auto storage = meta->Kind == EKikimrTableKind::Olap
+                    ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage;
                 return TNativeTable{*table.NativeCatalog, std::move(table), storage};
             }, ctx, binding);
 
