@@ -164,6 +164,7 @@ public:
             ui32 depth = 1;
             auto node = Operator(op, depth);
             Y_ENSURE(depth <= 256, "LogicalPlan operator nesting limit exceeded");
+            node->InitializeOutputIUs();
             Operators.push_back({std::move(node), depth});
         }
         ui32 depth = 0;
@@ -182,7 +183,6 @@ public:
         Props.EffectPriority = root.result_index();
         result->PlanProps = std::move(Props);
         for (const auto& entry : *result) entry.Current->BindExpressionPlanProps(&result->PlanProps);
-        result->RecomputeOutputIUsSubtree();
         result->ComputeParents();
         return result;
     }

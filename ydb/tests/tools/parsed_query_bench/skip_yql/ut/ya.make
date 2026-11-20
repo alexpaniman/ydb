@@ -8,6 +8,7 @@ DEPENDS(
 )
 
 DATA(
+    arcadia/ydb/tests/tools/parsed_query_bench/skip_yql/generate.py
     arcadia/ydb/tests/tools/parsed_query_bench/proto/logical_plan.proto
     arcadia/ydb/tests/tools/parsed_query_bench/proto/native_query.proto
 )

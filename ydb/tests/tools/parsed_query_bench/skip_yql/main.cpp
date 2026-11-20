@@ -3,6 +3,8 @@
 #include "../measurement.h"
 #include "../ready_client.h"
 
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/descriptor.pb.h>
 #include <ydb/tests/tools/parsed_query_bench/proto/execute_query.pb.h>
 #include <util/generic/yexception.h>
 #include <util/stream/file.h>
@@ -10,6 +12,7 @@
 
 #include <array>
 #include <iostream>
+#include <set>
 
 namespace NKikimr::NKqp::NParsedQueryBench {
 namespace {
@@ -22,6 +25,18 @@ struct TInput {
     EStage Stage;
     TString Bytes;
 };
+
+void AddDescriptor(const google::protobuf::FileDescriptor* file, std::set<TString>& seen,
+    google::protobuf::FileDescriptorSet& descriptors)
+{
+    if (!seen.emplace(file->name()).second) {
+        return;
+    }
+    for (int index = 0; index < file->dependency_count(); ++index) {
+        AddDescriptor(file->dependency(index), seen, descriptors);
+    }
+    file->CopyTo(descriptors.add_file());
+}
 
 TRequest Decode(const TInput& input) {
     TRequest request;
@@ -81,8 +96,16 @@ void Bench(TRunner& runner, const std::array<TInput, 2>& inputs, size_t warmup, 
 }
 
 int Run(int argc, const char** argv) {
+    if (argc == 2 && TStringBuf(argv[1]) == "--dump-descriptor") {
+        google::protobuf::FileDescriptorSet descriptors;
+        std::set<TString> seen;
+        AddDescriptor(TRequest::descriptor()->file(), seen, descriptors);
+        Y_ENSURE(descriptors.SerializeToOstream(&std::cout), "Could not write the request descriptor");
+        return 0;
+    }
     Y_ENSURE(argc >= 4 && TStringBuf(argv[1]) == "--catalog",
-        "Usage: --catalog CATALOG {--verify | --bench WARMUP REPEATS | --client-ready WARMUP REPEATS} TEXT.pb LOGICAL_PLAN.pb");
+        "Usage: --dump-descriptor or --catalog CATALOG "
+        "{--verify | --bench WARMUP REPEATS | --client-ready WARMUP REPEATS} TEXT.pb LOGICAL_PLAN.pb");
     const TStringBuf mode(argv[3]);
     const bool verify = mode == "--verify";
     Y_ENSURE((verify && argc == 6) || ((mode == "--bench" || mode == "--client-ready") && argc == 8),
